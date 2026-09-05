@@ -8,7 +8,7 @@
 
 ## I didn't invent this game!
 
-Just to be clear: this is [Lode Runner](https://en.wikipedia.org/wiki/Lode_Runner), a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, [magazine contests](https://cgwmuseum.org/galleries/index.php?year=1985&pub=2&id=21), books of levels to copy, and competitions.
+Just to be clear: this is [Lode Runner](https://en.wikipedia.org/wiki/Lode_Runner), a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, [magazine contests](https://cgwmuseum.org/galleries/index.php?year=1985&pub=2&id=21), [books of levels to copy](https://ndlsearch.ndl.go.jp/books/R100000002-I000001903930), and [competitions](https://note.com/cyborgmsx/n/n9c87c5cbef81).
 
 **What you see above are _my_ levels, which I made when I was 10.** I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and then fixing the transcription errors. Fortunately, the files are very small.
 

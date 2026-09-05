@@ -1,6 +1,6 @@
 # Jim's Levels
 
-86 Lode Runner levels I made when I was 10 years old, playable in a web browser.
+[Click here to play the 86 Lode Runner levels I made when I was a kiddo.](https://jpivarski.github.io/jims-loderunner-levels/)
 
 <a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="500"></a>
 

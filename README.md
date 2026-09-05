@@ -5,7 +5,13 @@
 **[▶ Play](https://jpivarski.github.io/jims-loderunner-levels/)**
 
 The whole game is a single `index.html` — no build step, no libraries, no external
-requests. Open it and press any key to start on level 1.
+requests. Open it and press any key to start.
+
+Every level begins frozen and unshaded, so you get to read the board and plan a
+route before anything can reach you. That includes after you are caught: press a
+key when you are ready.
+
+<!-- COPY HERE -->
 
 ## Controls
 
@@ -21,14 +27,15 @@ can play left-handed, right-handed, or with a hand on each.
 | shoot the block down-left | `Q` | `U` | — |
 | shoot the block down-right | `E` | `O` | — |
 
-`Esc` pause · `R` restart the level · `[` `]` previous/next level ·
+`Space` pause · `R` restart the level · `[` `]` previous/next level ·
 type a number then `Enter` to jump to a level · `M` mute ·
 `T` switch between hold-to-move and latched (Apple II style) movement
 
 ## How it plays
 
 Collect every chest on the screen. When the last one is gone, hidden ladders appear
-and you escape out the top row. Guards chase you; shoot a hole in a brick floor to
+and you escape out the top row. The border around the playfield is there so you can
+tell whether a ladder actually reaches the top. Guards chase you; shoot a hole in a brick floor to
 drop one in, and you can run across its head while it struggles. Holes fill back in
 after a few seconds — and they will crush whatever is still standing in them,
 including you.

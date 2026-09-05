@@ -30,89 +30,244 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Crect x='2' y='4' width='12' height='3' fill='%23ffe860'/%3E%3Crect x='2' y='8' width='12' height='5' fill='%23d8a418'/%3E%3Crect x='7' y='9' width='2' height='2' fill='%237a5000'/%3E%3C/svg%3E">
 <title>Jim's Levels</title>
 <style>
+  :root {
+    /* one line to make the margin fluid instead: clamp(12px, 2vmin, 28px).
+       CSS px is already density-independent, so 20px is stable across DPRs. */
+    --margin: 20px;
+    --ladder-shade: #96905e;   /* overwritten from PAL_TERRAIN.h at boot */
+    --ink:   #cfd6dd;
+    --dim:   #8c98a4;
+    --faint: #5d6873;
+    --warm:  #e8e4b0;
+    --cyan:  #38d0e0;
+    --gold:  #ffe860;
+    --panel: #171c21;
+    --rule:  #262e38;
+  }
+  html { box-sizing: border-box; }
+  *, *::before, *::after { box-sizing: inherit; }
   html, body {
-    margin: 0; padding: 0; height: 100%;
-    background: #000; color: #cfd6dd; overflow: hidden;
+    margin: 0; padding: 0; min-height: 100%;
+    background: #000; color: var(--ink);
     font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   body { display: flex; flex-direction: column; align-items: center;
-         justify-content: center; outline: none; }
-  #wrap { position: relative; }
-  canvas { display: block; image-rendering: pixelated;
-           image-rendering: crisp-edges; background: #000; }
-  #hud { display: flex; gap: 1.6em; justify-content: space-between;
-         width: 100%; padding: 6px 2px; box-sizing: border-box;
-         color: #8c98a4; letter-spacing: .04em; }
-  #hud b { color: #e8e4b0; font-weight: normal; }
-  #hud .gold b { color: #ffe860; }
-  #hint { color: #5d6873; padding: 2px; text-align: center;
-          transition: opacity 1.2s; }
+         justify-content: flex-start; outline: none; }
+
+  /* The key bank spans the whole window and centres, so it stays readable on
+     a wide monitor where the board itself is height-limited.  Everything else
+     lives in #column, whose width JS pins to the playfield - so the HUD and
+     the writeup are never wider than the board. */
+  #keys { width: 100%; text-align: center; color: var(--dim);
+          line-height: 2.1; margin-top: var(--margin); padding: 0 var(--margin) 6px;
+          box-sizing: border-box; }
+  #column { width: 100%; }
+  #keys .sep { color: var(--faint); margin: 0 .45em; }
+  #keys .cmd { white-space: nowrap; margin: 0 .35em; }
+
+  /* The border marks exactly where the playable area starts and ends - which
+     is what you need in order to judge whether a ladder reaches the top. */
+  #wrap { position: relative; width: 100%;
+          border: 2px solid var(--ladder-shade); padding: 2px; }
+  canvas { display: block; width: 100%; background: #000;
+           image-rendering: pixelated; image-rendering: crisp-edges; }
+
+  #hud { display: flex; width: 100%; gap: 1em; padding-top: 6px;
+         color: var(--dim); letter-spacing: .04em; }
+  #hud b { color: var(--warm); font-weight: normal; }
+  #tagline { flex: 1; text-align: center;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #hint { min-height: 1.6em; padding-top: 2px;
+          color: var(--gold); text-align: center; }
+
+  kbd { display: inline-block; min-width: 1.1em; padding: 1px 5px; margin: 0 1px;
+        border: 1px solid #47525d; border-bottom-width: 2px; border-radius: 3px;
+        background: var(--panel); color: var(--ink); font: inherit; }
+
+  /* inset by the border width so overlays sit inside the frame, not over it */
   .overlay {
-    position: absolute; inset: 0; display: flex; flex-direction: column;
+    position: absolute; inset: 2px; display: flex; flex-direction: column;
     align-items: center; justify-content: center; text-align: center;
-    background: rgba(0,0,0,.82); backdrop-filter: blur(2px);
-    padding: 2em; box-sizing: border-box;
+    background: rgba(0,0,0,.82); backdrop-filter: blur(2px); padding: 2em;
   }
   .overlay.hide { display: none; }
-  .overlay h1 { margin: 0 0 .2em; font-size: 2.1em; color: #38d0e0;
+  .overlay h1 { margin: 0 0 .2em; font-size: 2.1em; color: var(--cyan);
                 letter-spacing: .06em; font-weight: normal; }
-  .overlay h2 { margin: 0 0 1em; font-size: 1.1em; color: #e8e4b0;
+  .overlay h2 { margin: 0 0 1em; font-size: 1.1em; color: var(--warm);
                 font-weight: normal; }
   .overlay p  { margin: .35em 0; max-width: 46em; }
-  .overlay .keys { color: #8c98a4; margin-top: 1.4em; line-height: 1.9; }
-  .overlay kbd {
-    display: inline-block; min-width: 1.1em; padding: 1px 5px; margin: 0 1px;
-    border: 1px solid #47525d; border-bottom-width: 2px; border-radius: 3px;
-    background: #171c21; color: #cfd6dd; font: inherit;
-  }
-  .overlay .go { color: #ffe860; margin-top: 1.6em; animation: blink 1.1s infinite steps(1); }
+  .overlay .go { color: var(--gold); margin-top: 1.6em;
+                 animation: blink 1.1s infinite steps(1); }
   @keyframes blink { 50% { opacity: .25 } }
-  #sheet { padding: 24px; overflow: auto; height: 100%; box-sizing: border-box; }
-  #sheet h3 { color: #38d0e0; font-weight: normal; margin: 1.4em 0 .5em; }
+
+  /* ---- the writeup, injected from README.md by tools/readme_to_html.py ---- */
+  #about { width: 100%; line-height: 1.7; color: var(--dim);
+           margin: calc(var(--margin) * 2) 0 calc(var(--margin) * 2);
+           padding-top: var(--margin);
+           border-top: 2px solid var(--ladder-shade); }
+  #about > :first-child { margin-top: 0; }
+  #about h1, #about h2, #about h3, #about h4 {
+           color: var(--cyan); font-weight: normal; line-height: 1.3;
+           margin: 1.8em 0 .6em; }
+  #about h1 { font-size: 1.5em; }
+  #about h2 { font-size: 1.25em; }
+  #about h3 { font-size: 1.1em; }
+  #about h4 { font-size: 1em; color: var(--warm); }
+  #about p, #about li { margin: .7em 0; }
+  #about strong { color: var(--warm); font-weight: normal; }
+  #about em { color: var(--ink); }
+  #about a { color: var(--cyan); text-decoration-color: #1f6b75; }
+  #about a:hover { color: #7ce6f2; }
+  #about ul, #about ol { padding-left: 1.6em; }
+  #about code { background: var(--panel); color: var(--warm);
+                padding: .1em .35em; border-radius: 3px; }
+  #about pre { background: var(--panel); border: 1px solid var(--rule);
+               border-radius: 4px; padding: .8em 1em; overflow-x: auto; }
+  #about pre code { background: none; padding: 0; color: var(--ink); }
+  #about blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; color: var(--faint);
+                      border-left: 2px solid var(--ladder-shade); }
+  #about hr { border: 0; border-top: 1px solid var(--rule); margin: 2em 0; }
+  #about img { max-width: 100%; height: auto; }
+  #about table { border-collapse: collapse; margin: 1em 0; }
+  #about th, #about td { border: 1px solid #3a4048; padding: .35em .8em;
+                         text-align: left; }
+  #about th { background: var(--panel); color: var(--warm); font-weight: normal; }
+
+  #sheet { padding: 24px; }
+  #sheet h3 { color: var(--cyan); font-weight: normal; margin: 1.4em 0 .5em; }
   #sheet .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
-  #sheet figure { margin: 0; text-align: center; color: #5d6873; font-size: 11px; }
+  #sheet figure { margin: 0; text-align: center; color: var(--faint); font-size: 11px; }
 </style>
 </head>
 <body tabindex="0">
 
-<div id="wrap">
-  <canvas id="cv"></canvas>
+<div id="keys">
+  <span class="cmd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+  <span class="cmd"><kbd>Q</kbd><kbd>E</kbd> shoot</span><span class="sep">or</span>
+  <span class="cmd"><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> move</span>
+  <span class="cmd"><kbd>U</kbd><kbd>O</kbd> shoot</span><span class="sep">&middot;</span>
+  <span class="cmd"><kbd>Space</kbd> pause</span>
+  <span class="cmd"><kbd>R</kbd> restart</span>
+  <span class="cmd"><kbd>[</kbd><kbd>]</kbd> level</span>
+  <span class="cmd"><kbd>M</kbd> mute</span>
+</div>
 
-  <div id="title" class="overlay">
-    <h1>JIM'S LEVELS</h1>
-    <h2>86 Lode Runner levels I made when I was 10</h2>
-    <p>Collect every chest, then climb out the top.</p>
-    <div class="keys">
-      move <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
-      &nbsp;shoot <kbd>Q</kbd><kbd>E</kbd>
-      &nbsp;&nbsp;or&nbsp;&nbsp;
-      move <kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>
-      &nbsp;shoot <kbd>U</kbd><kbd>O</kbd><br>
-      <kbd>R</kbd> restart level &nbsp; <kbd>Esc</kbd> pause &nbsp;
-      <kbd>[</kbd><kbd>]</kbd> change level &nbsp; <kbd>M</kbd> mute
+<div id="column">
+
+  <div id="wrap">
+    <canvas id="cv"></canvas>
+
+    <div id="pause" class="overlay hide">
+      <h1>PAUSED</h1>
+      <p class="go">press <kbd>Space</kbd> to resume</p>
     </div>
-    <p class="go" id="titlego">press any key to start level 1</p>
+
+    <div id="win" class="overlay hide">
+      <h1>CONGRATULATIONS!</h1>
+      <h2>All 86 levels complete</h2>
+      <p>You finished every level I designed as a 10-year-old.</p>
+      <p class="go">press <kbd>R</kbd> to play again from level 1</p>
+    </div>
   </div>
 
-  <div id="pause" class="overlay hide">
-    <h1>PAUSED</h1>
-    <p class="go">press <kbd>Esc</kbd> to resume</p>
+  <div id="hud">
+    <span>LEVEL <b id="hudLevel">1</b> / 86</span>
+    <span id="tagline">Collect every chest, then climb out of the top.</span>
+    <span>SOUND <b id="hudSound">on</b></span>
   </div>
+  <div id="hint"></div>
 
-  <div id="win" class="overlay hide">
-    <h1>CONGRATULATIONS!</h1>
-    <h2>All 86 levels complete</h2>
-    <p>You finished every level I designed as a 10-year-old.</p>
-    <p class="go">press <kbd>R</kbd> to play again from level 1</p>
-  </div>
+  <section id="about">
+<!-- README:BEGIN -->
+<h2>Controls</h2>
+<p>Both control sets are live at the same time and are fully interchangeable, so you
+can play left-handed, right-handed, or with a hand on each.</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Left hand</th>
+<th>Right hand</th>
+<th>Arrows</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>move left</td>
+<td><code>A</code></td>
+<td><code>J</code></td>
+<td><code>←</code></td>
+</tr>
+<tr>
+<td>move right</td>
+<td><code>D</code></td>
+<td><code>L</code></td>
+<td><code>→</code></td>
+</tr>
+<tr>
+<td>climb up</td>
+<td><code>W</code></td>
+<td><code>I</code></td>
+<td><code>↑</code></td>
+</tr>
+<tr>
+<td>climb down</td>
+<td><code>S</code></td>
+<td><code>K</code></td>
+<td><code>↓</code></td>
+</tr>
+<tr>
+<td>shoot the block down-left</td>
+<td><code>Q</code></td>
+<td><code>U</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>shoot the block down-right</td>
+<td><code>E</code></td>
+<td><code>O</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><code>Space</code> pause · <code>R</code> restart the level · <code>[</code> <code>]</code> previous/next level ·
+type a number then <code>Enter</code> to jump to a level · <code>M</code> mute ·
+<code>T</code> switch between hold-to-move and latched (Apple II style) movement</p>
+<h2>How it plays</h2>
+<p>Collect every chest on the screen. When the last one is gone, hidden ladders appear
+and you escape out the top row. The border around the playfield is there so you can
+tell whether a ladder actually reaches the top. Guards chase you; shoot a hole in a brick floor to
+drop one in, and you can run across its head while it struggles. Holes fill back in
+after a few seconds — and they will crush whatever is still standing in them,
+including you.</p>
+<p>Steel blocks cannot be shot. Some bricks are false and you fall straight through.
+Lives are infinite and there is no score: the only goal is the next screen.</p>
+<h2>About the levels</h2>
+<p>The levels came off a 34 KB file I wrote as a kid, in the Apple II layout: 224 bytes
+per level holding 448 nibbles for a 28×16 grid, low nibble the left tile and high
+nibble the right. 86 of the 151 available slots were filled. The decoded levels are
+embedded in <code>index.html</code> as ASCII art, and 85 of the 86 re-encode byte-identically to
+the original file. Two cells in level 16 held tile values that do not exist (13 and
+14); both were isolated cells in open space, and I render them as empty.</p>
+<h2>Provenance and credits</h2>
+<p>Everything here — the engine, the pixel art, the synthesized sound, and the level
+designs — is my own original work, under the BSD 3-Clause license in <code>LICENSE</code>. Note
+that the third clause means my name may not be used to endorse derived works without
+permission.</p>
+<p>The mechanics reimplement the 1983 original by <strong>Douglas E. Smith</strong>, published by
+<strong>Brøderbund</strong>. Game rules and algorithms are not copyrightable, so this is a
+from-scratch implementation of behavior, not a port.</p>
+<p>While building it I read <strong><a href="https://github.com/SimonHung/LodeRunner_TotalRecall">LodeRunner_TotalRecall</a></strong>
+by <strong>Simon Hung</strong> as a behavioral reference for timing constants and guard AI. That
+project carries no license of any kind, so none of its code, sprites, or audio is
+used here — only my own reimplementation of the behavior it documents.</p>
+<p><em>Lode Runner</em> is a trademark of <strong>Tozai Games</strong>. This project is unaffiliated with and
+unendorsed by Tozai Games or any other rights holder, and contains none of the
+commercial level data — only my 86 levels.</p>
+<!-- README:END -->
+  </section>
+
 </div>
-
-<div id="hud">
-  <span>LEVEL <b id="hudLevel">1</b> / 86</span>
-  <span class="gold">GOLD <b id="hudGold">0</b></span>
-  <span>SOUND <b id="hudSound">on</b></span>
-</div>
-<div id="hint">click here first if keys do nothing</div>
 
 <script>
 "use strict";
@@ -137,6 +292,17 @@ const HOLE_TICKS  = 187;  // hole lifetime once open
 const HOLE_WARN   = 20;   // refill masks play over the final N ticks
 const SHAKE_TICKS = 67;   // guard struggles in a hole this long
 const BORN_TICKS  = 10;
+const DIE_TICKS   = 30;   // death animation, then the level reloads
+
+/* Lethal range, in logical units, against a tile of 40 x 44.  A sprite fills
+   its whole tile, so requiring |dx| < DEATH_X and |dy| < DEATH_Y means the two
+   sprites must overlap by roughly two thirds before contact counts.  This is
+   the single source of truth for lethality: tile-entry no longer kills on its
+   own, because a guard crossing a tile boundary is still 16 units (0.4 of a
+   tile) away and killing there reads as dying at a distance.
+   No tunnelling: the fastest closing speed is 16/tick across and 18/tick
+   vertically, both well inside the 24 and 28 unit windows below. */
+const DEATH_X = 12, DEATH_Y = 14;
 
 /* Tiles */
 const EMPTY=0, BRICK=1, STEEL=2, LADDER=3, ROPE=4, TRAP=5, HLADDER=6,
@@ -2198,7 +2364,7 @@ const LEVELS = [
 let map = [], guards = [], runner = null;
 let goldLeft = 0, goldComplete = false;
 let holes = [], digging = null;
-let level = 0, state = "title";
+let level = 0, state = "ready";
 let terrainDirty = true;
 let deadTimer = 0, passTimer = 0;
 let moveOffset = 0, moveId = 0;
@@ -2208,7 +2374,8 @@ const el = function (id) { return document.getElementById(id); };
 function newActor(x, y) {
   return { pos: { x: x, y: y, xOffset: 0, yOffset: 0 },
            action: A_STOP, face: 1, dist: 0, anim: "stand",
-           hasGold: 0, shakeTick: 0, bornTick: 0, holePos: null };
+           hasGold: 0, shakeTick: 0, bornTick: 0, dieTick: 0, holePos: null,
+           falling: false, fallFrom: 0 };
 }
 
 /* A tile has two layers.  `base` is static terrain; `act` is dynamic
@@ -2313,7 +2480,24 @@ function moveRunner() {
     falling = !(nb === BRICK || nb === LADDER || nb === STEEL || nb === GUARD);
   } else falling = false;
 
-  if (falling) { pendingShoot = 0; runnerStep(A_FALL, false); return; }
+  /* Sound the fall once, on the transition into it, and thud on landing if
+     the drop was more than half a tile.  Guards are deliberately silent here:
+     with up to five of them stepping off ledges it would be constant chatter. */
+  if (falling) {
+    if (!runner.falling) {
+      runner.falling = true;
+      runner.fallFrom = p.y * LH + p.yOffset;
+      fallStart();
+    }
+    pendingShoot = 0;
+    runnerStep(A_FALL, false);
+    return;
+  }
+  if (runner.falling) {
+    runner.falling = false;
+    fallStop();
+    if ((p.y * LH + p.yOffset) - runner.fallFrom > H2) sfx("land");
+  }
 
   if (pendingShoot) { const d = pendingShoot; pendingShoot = 0; tryShoot(d); return; }
 
@@ -2354,21 +2538,18 @@ function runnerStep(action, blocked) {
       else {
         const t = map[nx][p.y].act;
         if (t === BRICK || t === STEEL || t === TRAP) blocked = true;
-        else if (t === GUARD && guardAt(nx, p.y)) return killRunner();
       }
     } else if (action === A_UP) {
       if (p.y <= 0) blocked = true;
       else {
         const t = map[p.x][p.y - 1].act;
         if (t === BRICK || t === STEEL || t === TRAP) blocked = true;
-        else if (t === GUARD && guardAt(p.x, p.y - 1)) return killRunner();
       }
     } else {
       if (p.y >= TH - 1) blocked = true;
       else {
         const t = map[p.x][p.y + 1].act;
         if (t === BRICK || t === STEEL) blocked = true;
-        else if (t === GUARD && action === A_DOWN && guardAt(p.x, p.y + 1)) return killRunner();
       }
     }
   }
@@ -2459,14 +2640,17 @@ function checkCollision() {
   for (const g of guards) {
     if (g.action === A_REBORN) continue;
     const gx = g.pos.x * LW + g.pos.xOffset, gy = g.pos.y * LH + g.pos.yOffset;
-    if (Math.abs(gx - rx) < W2 && Math.abs(gy - ry) < H2) return killRunner();
+    if (Math.abs(gx - rx) < DEATH_X && Math.abs(gy - ry) < DEATH_Y) return killRunner();
   }
 }
 
 function killRunner() {
   if (state !== "run") return;
+  fallStop();
   state = "dead";
-  deadTimer = 22;
+  deadTimer = DIE_TICKS;
+  runner.anim = "die";
+  runner.dieTick = 0;
   sfx("dead");
 }
 
@@ -2728,21 +2912,18 @@ function guardStep(g, action) {
       /* trap is tested on `base`, not `act`: otherwise, while the runner is
          hiding inside a false brick, act reads RUNNER and guards walk in */
       if (c.act === BRICK || c.act === STEEL || c.act === GUARD || c.base === TRAP) blocked = true;
-      else if (c.act === RUNNER) return killRunner();
     }
   } else if (action === A_UP) {
     if (p.y <= 0) blocked = true;
     else {
       const c = map[p.x][p.y - 1];
       if (c.act === BRICK || c.act === STEEL || c.act === TRAP || c.act === GUARD) blocked = true;
-      else if (c.act === RUNNER) return killRunner();
     }
   } else {
     if (p.y >= TH - 1) blocked = true;
     else {
       const c = map[p.x][p.y + 1];
       if (c.act === BRICK || c.act === STEEL || c.act === GUARD) blocked = true;
-      else if (c.act === RUNNER && action === A_DOWN) return killRunner();
     }
   }
 
@@ -2905,7 +3086,10 @@ function processBorn() {
 /* ========================================================================
    Rendering
    ======================================================================== */
-let cv, ctx, terrainCv, terrainCtx, scale = 3;
+let cv, ctx, terrainCv, terrainCtx;
+let scale = 3;      /* CSS px per art pixel, fractional */
+let PX = 1;         /* device px per art pixel, fractional */
+const CHROME = 8;   /* #wrap border (2px) + padding (2px), both sides */
 
 function tileSprite(x, y) {
   const c = map[x][y];
@@ -2935,11 +3119,18 @@ function tileSprite(x, y) {
   }
 }
 
+/* Round BOTH edges of the destination rect and take the difference - never
+   round the origin and add a fractional width.  At a fractional scale the
+   latter leaves 1px background gaps between terrain tiles; this way tile n's
+   right edge is exactly tile n+1's left edge, so brickwork stays seamless at
+   any zoom.  Smoothing stays off, so art pixels are nearest-neighbour and
+   vary by at most one device pixel in width. */
 function blit(c, sprite, lx, ly) {
   if (!sprite) return;
-  c.drawImage(sprite, 0, 0, AW, AH,
-              Math.round(lx / LW * AW * scale), Math.round(ly / LH * AH * scale),
-              AW * scale, AH * scale);
+  const tx = lx / LW, ty = ly / LH;
+  const x0 = Math.round(tx * AW * PX), x1 = Math.round((tx + 1) * AW * PX);
+  const y0 = Math.round(ty * AH * PX), y1 = Math.round((ty + 1) * AH * PX);
+  c.drawImage(sprite, 0, 0, AW, AH, x0, y0, x1 - x0, y1 - y0);
 }
 
 function drawTerrain() {
@@ -2970,6 +3161,15 @@ function actorSprite(a, isGuard) {
       return SP[pre + (lit ? "shoot" : "shootDim") + flip];
     }
     case "shake": return SP[pre + SHAKE_CYCLE[Math.floor(a.shakeTick / 4) % 4]];
+    case "die": {
+      /* the runner's own shake frames, in order: arms up, arms flung out,
+         then sunk low - so death reads as being dragged under */
+      const t = a.dieTick;
+      if (t < 8)  return SP[pre + "shake1"];
+      if (t < 16) return SP[pre + "shake2"];
+      if (t < 24) return SP[pre + "shake3"];
+      return null;                     /* gone for the last few ticks */
+    }
     case "born":  return SP[pre + (a.bornTick < BORN_TICKS / 2 ? "born1" : "born2")];
     default:      return SP[pre + "run2" + flip];
   }
@@ -2986,36 +3186,78 @@ function draw() {
     blit(ctx, actorSprite(g, true), lx, ly);
     if (g.hasGold > 0) {
       ctx.fillStyle = "#ffe860";
-      ctx.fillRect(Math.round(lx / LW * AW * scale) + 8 * scale,
-                   Math.round(ly / LH * AH * scale), 2 * scale, 2 * scale);
+      const d = Math.max(2, Math.round(2 * PX));
+      ctx.fillRect(Math.round((lx / LW * AW + 8) * PX),
+                   Math.round(ly / LH * AH * PX), d, d);
     }
   }
-  if (runner && state !== "dead")
+  if (runner)
     blit(ctx, actorSprite(runner, false),
          runner.pos.x * LW + runner.pos.xOffset, runner.pos.y * LH + runner.pos.yOffset);
 }
 
-function resize() {
-  const availW = Math.max(320, window.innerWidth - 20);
-  const availH = Math.max(240, window.innerHeight - 96);
-  scale = Math.max(1, Math.min(6, Math.floor(Math.min(availW / (TW * AW), availH / (TH * AH)))));
-  cv.width = TW * AW * scale;  cv.height = TH * AH * scale;
-  terrainCv.width = cv.width;  terrainCv.height = cv.height;
+/* Fit the board to the window, preserving its 504:272 aspect exactly, with
+   --margin of clear space at the top, left and right.  The scale is a float,
+   so zoom is continuous rather than jumping between integer steps. */
+function layout() {
+  const root = document.documentElement;
+  const m = parseFloat(getComputedStyle(root).getPropertyValue("--margin")) || 20;
+  const col = el("column");
+  let cssW = 0, cssH = 0;
+
+  /* Two passes: setting the column width can rewrap the key bank, which
+     changes its height, which feeds back into the height left for the board. */
+  for (let pass = 0; pass < 2; pass++) {
+    const availW = Math.max(160, root.clientWidth - 2 * m - CHROME);
+    const chromeH = el("keys").offsetHeight + el("hud").offsetHeight +
+                    el("hint").offsetHeight;
+    const availH = Math.max(90, root.clientHeight - 2 * m - chromeH - CHROME);
+    scale = Math.min(availW / (TW * AW), availH / (TH * AH));
+    cssW = Math.round(TW * AW * scale);
+    cssH = Math.round(TH * AH * scale);
+    col.style.width = (cssW + CHROME) + "px";
+    cv.style.height = cssH + "px";      /* CSS width comes from width:100% */
+  }
+
+  const dpr = window.devicePixelRatio || 1;
+  cv.width  = Math.round(cssW * dpr);
+  cv.height = Math.round(cssH * dpr);
+  terrainCv.width = cv.width;
+  terrainCv.height = cv.height;
+  PX = cv.width / (TW * AW);
   ctx.imageSmoothingEnabled = false;
   terrainCtx.imageSmoothingEnabled = false;
   terrainDirty = true;
   draw();
 }
 
+/* Dragging the window to a monitor with a different pixel ratio fires no
+   resize event, so watch the resolution directly and re-render sharply. */
+let dprQuery = null;
+function onDprChange() { watchDpr(); layout(); }
+function watchDpr() {
+  if (dprQuery && dprQuery.removeEventListener)
+    dprQuery.removeEventListener("change", onDprChange);
+  dprQuery = matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+  if (dprQuery.addEventListener) dprQuery.addEventListener("change", onDprChange);
+}
+
 /* ========================================================================
    Audio.  Everything is synthesized; there are no audio assets.
    ======================================================================== */
-let actx = null, muted = false;
+let actx = null, master = null, muted = false;
 
+/* Everything routes through one master gain, so the layered sounds (the
+   blaster stacks four voices) sum without clipping. */
 function audio() {
-  if (!actx) {
+  if (actx === null) {
     try { actx = new (window.AudioContext || window.webkitAudioContext)(); }
     catch (e) { actx = false; }
+    if (actx) {
+      master = actx.createGain();
+      master.gain.value = 0.55;
+      master.connect(actx.destination);
+    }
   }
   if (actx && actx.state === "suspended") actx.resume();
   return actx || null;
@@ -3030,25 +3272,98 @@ function tone(freq, dur, type, gain, slideTo, delay) {
   if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), t0 + dur);
   gn.gain.setValueAtTime(gain, t0);
   gn.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
-  o.connect(gn); gn.connect(a.destination);
+  o.connect(gn); gn.connect(master);
   o.start(t0); o.stop(t0 + dur + 0.02);
 }
 
-function noise(dur, gain, cut) {
+function noise(dur, gain, cut, cutTo) {
   const a = audio(); if (!a) return;
   const n = Math.floor(a.sampleRate * dur);
   const buf = a.createBuffer(1, n, a.sampleRate);
   const d = buf.getChannelData(0);
   for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
   const src = a.createBufferSource(); src.buffer = buf;
-  const f = a.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = cut || 1200;
+  const f = a.createBiquadFilter(); f.type = "lowpass";
+  f.frequency.setValueAtTime(cut || 1200, a.currentTime);
+  if (cutTo) f.frequency.exponentialRampToValueAtTime(Math.max(60, cutTo), a.currentTime + dur);
   const gn = a.createGain(); gn.gain.value = gain;
-  src.connect(f); f.connect(gn); gn.connect(a.destination);
+  src.connect(f); f.connect(gn); gn.connect(master);
   src.start();
 }
 
+/* A sci-fi ray gun.  The descending sweep alone glides cleanly and sounds
+   like a slide whistle; what makes it read as a ray gun is an LFO wired
+   straight into the oscillator's frequency, so the pitch wobbles as it
+   falls. */
+function rayGun(f0, f1, dur, gain, wobbleHz, wobbleDepth, delay) {
+  const a = audio(); if (!a) return;
+  const t0 = a.currentTime + (delay || 0);
+  const o = a.createOscillator(), gn = a.createGain();
+  const lfo = a.createOscillator(), depth = a.createGain();
+
+  o.type = "sawtooth";
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
+
+  lfo.type = "sine";
+  lfo.frequency.setValueAtTime(wobbleHz, t0);
+  depth.gain.setValueAtTime(wobbleDepth, t0);
+  lfo.connect(depth); depth.connect(o.frequency);
+
+  gn.gain.setValueAtTime(gain, t0);
+  gn.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+  o.connect(gn); gn.connect(master);
+
+  o.start(t0);   lfo.start(t0);
+  o.stop(t0 + dur + 0.02);   lfo.stop(t0 + dur + 0.02);
+}
+
+/* The fall is one oscillator held for the whole descent, with its pitch
+   ramping down the entire time - so the glide is genuinely continuous and a
+   long drop falls further than a short one, instead of every fall replaying
+   the same fixed blip. */
+let fallVoice = null;
+
+function fallStart() {
+  if (muted) return;
+  const a = audio(); if (!a) return;
+  fallStop();
+  const t = a.currentTime;
+  const o = a.createOscillator(), gn = a.createGain();
+  o.type = "triangle";
+  o.frequency.setValueAtTime(920, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 2.2);
+  gn.gain.setValueAtTime(0.0001, t);
+  gn.gain.exponentialRampToValueAtTime(0.085, t + 0.025);
+  o.connect(gn); gn.connect(master);
+  o.start(t);
+  fallVoice = { o: o, gn: gn };
+}
+
+function fallStop() {
+  const v = fallVoice;
+  if (!v) return;
+  fallVoice = null;
+  if (!actx) return;
+  const t = actx.currentTime;
+  v.gn.gain.cancelScheduledValues(t);
+  v.gn.gain.setValueAtTime(Math.max(v.gn.gain.value || 0.0001, 0.0001), t);
+  v.gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  v.o.stop(t + 0.09);
+}
+
 const SFX = {
-  shoot:  function () { noise(0.15, 0.22, 1100); tone(240, 0.13, "square", 0.09, 70); },
+  /* The blaster, four layers deep so it reads as a shot rather than a thud:
+     a descending "pew", a softer harmonic under it, a bright crack of brick
+     shattering that darkens as the debris settles, and a low thump for weight. */
+  shoot:  function () {
+    rayGun(1900, 240, 0.30, 0.11, 34, 430);         /* the zap, warbling down */
+    rayGun(950,  170, 0.26, 0.05, 23, 250, 0.02);   /* an octave under it     */
+    noise(0.26, 0.15, 3000, 400);                   /* brick shattering       */
+    tone(70, 0.24, "sine", 0.13, 40, 0.04);         /* weight                 */
+  },
+  /* And a small thud on touchdown, only after a drop worth hearing. */
+  land:   function () { noise(0.09, 0.13, 520); tone(95, 0.13, "sine", 0.11, 55); },
   gold:   function () { tone(880, 0.07, "square", 0.12); tone(1320, 0.10, "square", 0.12, 0, 0.07); },
   trap:   function () { noise(0.24, 0.26, 380); tone(130, 0.22, "square", 0.11, 55); },
   born:   function () { tone(180, 0.18, "triangle", 0.10, 880); },
@@ -3084,24 +3399,31 @@ function refreshAction() {
 function onKeyDown(e) {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const code = e.code;
+  if (code === "Tab" || code.indexOf("Shift") === 0) return;
 
-  if (state === "title") {
-    if (code === "Tab" || code.indexOf("Shift") === 0) return;
+  /* A gameplay key (or Space) lifts the freeze, and then still acts - so the
+     key that starts the level also moves you.  Space is the exception: it
+     would otherwise immediately pause what it just started.  The non-gameplay
+     keys below deliberately do NOT unfreeze, which lets you browse levels
+     with [ ] or mute with M while the board sits still. */
+  if (state === "ready" && (KEYMAP[code] || code === "Space")) {
     e.preventDefault();
     audio();
-    startLevel(0);
-    if (KEYMAP[code] === undefined) return;
+    state = "run";
+    refreshHint();
+    if (code === "Space") return;
   }
 
-  if (code === "Escape") {
+  if (code === "Space") {
     e.preventDefault();
-    if (state === "run") { state = "pause"; el("pause").classList.remove("hide"); }
+    if (state === "run") { fallStop(); state = "pause"; el("pause").classList.remove("hide"); }
     else if (state === "pause") { state = "run"; el("pause").classList.add("hide"); }
     return;
   }
   if (code === "KeyR") { e.preventDefault(); startLevel(state === "win" ? 0 : level); return; }
   if (code === "KeyM") {
     e.preventDefault(); muted = !muted;
+    if (muted) fallStop();
     el("hudSound").textContent = muted ? "off" : "on";
     return;
   }
@@ -3140,12 +3462,17 @@ function onKeyUp(e) {
 }
 
 let hintTimer = 0;
+
+/* Sits below the HUD, outside the border, so it cues the frozen state without
+   shading any part of the board. */
+function refreshHint() {
+  el("hint").textContent = (state === "ready") ? "press any key to start" : "";
+}
+
 function showHint(text) {
-  const h = el("hint");
-  h.textContent = text;
-  h.style.opacity = "1";
   clearTimeout(hintTimer);
-  hintTimer = setTimeout(function () { h.style.opacity = "0"; }, 2200);
+  el("hint").textContent = text;
+  hintTimer = setTimeout(refreshHint, 2200);
 }
 
 /* ========================================================================
@@ -3153,25 +3480,21 @@ function showHint(text) {
    ======================================================================== */
 function updateHud() {
   el("hudLevel").textContent = String(level + 1);
-  el("hudGold").textContent = String(goldLeft);
 }
 
+/* Every level entry starts frozen: page load, advancing a level, R, [ ], a
+   digit jump, and after being captured or crushed.  The opening of a level is
+   when you read the board and plan a route, so it has to be motionless AND
+   unshaded - which is why this is its own state and not "pause". */
 function startLevel(n) {
   level = n;
-  state = "run";
+  fallStop();
+  state = "ready";
   held = []; latchedDir = null; keyAction = A_STOP; pendingShoot = 0;
-  el("title").classList.add("hide");
   el("pause").classList.add("hide");
   el("win").classList.add("hide");
-  el("hint").style.opacity = "0";
   buildLevel(n);
-  try { localStorage.setItem("jimsLevelsBest", String(Math.max(n + 1, best()))); } catch (e) {}
-  draw();
-}
-
-function best() {
-  try { return parseInt(localStorage.getItem("jimsLevelsBest") || "1", 10) || 1; }
-  catch (e) { return 1; }
+  refreshHint();
 }
 
 function levelPassed() {
@@ -3187,6 +3510,7 @@ function doWin() {
 }
 
 function tick() {
+  if (state === "ready") return;      /* frozen - study the board in safety */
   if (state === "run") {
     if (goldComplete && runner.pos.y === 0 && Math.abs(runner.pos.yOffset) <= H4) {
       levelPassed();
@@ -3198,6 +3522,7 @@ function tick() {
     processHoles();
     processBorn();
   } else if (state === "dead") {
+    runner.dieTick++;
     if (--deadTimer <= 0) startLevel(level);
   } else if (state === "pass") {
     if (--passTimer <= 0) {
@@ -3288,17 +3613,17 @@ function init() {
   terrainCv = document.createElement("canvas");
   terrainCtx = terrainCv.getContext("2d");
 
-  buildLevel(0);
-  resize();
-  window.addEventListener("resize", resize);
+  /* single source of truth for the frame colour: the ladder's own shade */
+  document.documentElement.style.setProperty("--ladder-shade", PAL_TERRAIN.h);
+
+  startLevel(0);      /* builds the map, and leaves the board frozen */
+  layout();           /* needs the map to exist, since it draws */
+  window.addEventListener("resize", layout);
+  watchDpr();
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   document.body.focus();
   document.body.addEventListener("mousedown", function () { document.body.focus(); });
-
-  const b = best();
-  if (b > 1) el("titlego").textContent =
-    "press any key to start level 1  (you reached " + b + " - type " + b + " then Enter)";
 
   requestAnimationFrame(frame);
 }

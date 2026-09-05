@@ -1,8 +1,8 @@
 # Jim's Levels
 
-86 Lode Runner levels I made when I was 10 years old, playable in a browser.
+86 Lode Runner levels I made when I was 10 years old, playable in a web browser.
 
-<a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="400"></a>
+<a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="500"></a>
 
 <!-- COPY HERE -->
 
@@ -12,7 +12,7 @@ Just to be clear: this is [Lode Runner](https://en.wikipedia.org/wiki/Lode_Runne
 
 **What you see above are _my_ levels, which I made when I was 10.** I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and then fixing the transcription errors. Fortunately, the files are very small.
 
-<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="400">
+<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500">
 
 ## Lode Runner is awesome
 

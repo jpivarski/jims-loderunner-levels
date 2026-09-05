@@ -179,91 +179,20 @@
 
   <section id="about">
 <!-- README:BEGIN -->
-<h2>Controls</h2>
-<p>Both control sets are live at the same time and are fully interchangeable, so you
-can play left-handed, right-handed, or with a hand on each.</p>
-<table>
-<thead>
-<tr>
-<th>Action</th>
-<th>Left hand</th>
-<th>Right hand</th>
-<th>Arrows</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>move left</td>
-<td><code>A</code></td>
-<td><code>J</code></td>
-<td><code>←</code></td>
-</tr>
-<tr>
-<td>move right</td>
-<td><code>D</code></td>
-<td><code>L</code></td>
-<td><code>→</code></td>
-</tr>
-<tr>
-<td>climb up</td>
-<td><code>W</code></td>
-<td><code>I</code></td>
-<td><code>↑</code></td>
-</tr>
-<tr>
-<td>climb down</td>
-<td><code>S</code></td>
-<td><code>K</code></td>
-<td><code>↓</code></td>
-</tr>
-<tr>
-<td>shoot the block down-left</td>
-<td><code>Q</code></td>
-<td><code>U</code></td>
-<td>—</td>
-</tr>
-<tr>
-<td>shoot the block down-right</td>
-<td><code>E</code></td>
-<td><code>O</code></td>
-<td>—</td>
-</tr>
-</tbody>
-</table>
-<p><code>Space</code> pause · <code>R</code> restart the level · <code>[</code> <code>]</code> previous/next level ·
-type a number then <code>Enter</code> to jump to a level · <code>M</code> mute ·
-<code>T</code> switch between hold-to-move and latched (Apple II style) movement</p>
-<h2>How it plays</h2>
-<p>Collect every chest on the screen. When the last one is gone, hidden ladders appear
-and you escape out the top row. The border around the playfield is there so you can
-tell whether a ladder actually reaches the top. Guards chase you; shoot a hole in a brick floor to
-drop one in, and you can run across its head while it struggles. Holes fill back in
-after a few seconds — and they will crush whatever is still standing in them,
-including you.</p>
-<p>Steel blocks cannot be shot. Some bricks are false and you fall straight through.
-Lives are infinite and there is no score: the only goal is the next screen.</p>
-<h2>About the levels</h2>
-<p>The levels came off a 34 KB file I wrote as a kid, in the Apple II layout: 224 bytes
-per level holding 448 nibbles for a 28×16 grid, low nibble the left tile and high
-nibble the right. 86 of the 151 available slots were filled. The decoded levels are
-embedded in <code>index.html</code> as ASCII art, and 85 of the 86 re-encode byte-identically to
-the original file. Two cells in level 16 held tile values that do not exist (13 and
-14); both were isolated cells in open space, and I render them as empty.</p>
-<h2>Provenance and credits</h2>
-<p>Everything here — the engine, the pixel art, the synthesized sound, and the level
-designs — is my own original work, under the BSD 3-Clause license in <code>LICENSE</code>. Note
-that the third clause means my name may not be used to endorse derived works without
-permission.</p>
-<p>The mechanics reimplement the 1983 original by <strong>Douglas E. Smith</strong>, published by
-<strong>Brøderbund</strong>. Game rules and algorithms are not copyrightable, so this is a
-from-scratch implementation of behavior, not a port.</p>
-<p>While building it I read <strong><a href="https://github.com/SimonHung/LodeRunner_TotalRecall">LodeRunner_TotalRecall</a></strong>
-by <strong>Simon Hung</strong> as a behavioral reference for timing constants and guard AI. That
-project carries no license of any kind, so none of its code, sprites, or audio is
-used here — only my own reimplementation of the behavior it documents.</p>
-<p><em>Lode Runner</em> is a trademark of <strong>Tozai Games</strong>. This project is unaffiliated with and
-unendorsed by Tozai Games or any other rights holder, and contains none of the
-commercial level data — only my 86 levels.</p>
+<h2>I didn't invent this game!</h2>
+<p>Just to be clear: this is <a href="https://en.wikipedia.org/wiki/Lode_Runner">Lode Runner</a>, a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, <a href="https://cgwmuseum.org/galleries/index.php?year=1985&amp;pub=2&amp;id=21">magazine contests</a>, books of levels to copy, and competitions.</p>
+<p><strong>What you see above are <em>my</em> levels, which I made when I was 10.</strong> I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and then fixing the transcription errors. Fortunately, the files are very small.</p>
+<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500">
+<h2>Lode Runner is awesome</h2>
+<p>It's like chess with reaction time. The architecture of a level forces you to plan how you're going to get all of the golds without getting eaten by the guards, and then implement it. You can't jump, and although you can shoot, you don't shoot the guards. You shoot the floor: to jump through it, to (temporarily) trap a guard, or to dig out some deeply buried gold. But think carefully, because you need a place to stand while digging.</p>
+<p>The guards are idiots. They have an algorithm, but it only sometimes involves chasing you. Nevertheless, you need to learn their algorithm because they can carry gold, and you need to get it from them. In some levels, the gold is hidden in places that you can't get to, but you can kill the guards (by burying them and letting the ground swallow them up) to make them respawn, sometimes in the places where you need them.</p>
+<p>Also, you fall faster than they do. Sometimes, that's a part of the puzzle.</p>
+<p>There's a lot to think about!</p>
+<h2>Who owns Lode Runner? Is this site legal?</h2>
+<p>The original game was created by Douglas Smith and published by Brøderbund in 1983 (<a href="https://www.filfre.net/2020/12/lode-runner/">full story</a>). The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by <a href="https://global.tozaigames.com/">Tozai Games</a>, who created a new version, <a href="https://global.tozaigames.com/legacy/">Lode Runner Legacy</a> (<a href="https://store.steampowered.com/app/628660/Lode_Runner_Legacy/">Steam</a>), which includes the classic levels.</p>
+<p>This website has none of the classic levels, only the ones that I designed, and the game engine is rewritten from scratch. It was inspired by <a href="https://github.com/SimonHung/LodeRunner_TotalRecall">LodeRunner_TotalRecall</a> by Simon Hung, which has no license, but I didn't copy any code from it. The pixel art and sounds on this site are also original.</p>
+<p>Game rules and algorithms are not copyrightable.</p>
+<p>&quot;Lode Runner&quot; is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.</p>
 <!-- README:END -->
   </section>
 

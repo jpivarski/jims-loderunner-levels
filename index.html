@@ -34,6 +34,7 @@
     /* one line to make the margin fluid instead: clamp(12px, 2vmin, 28px).
        CSS px is already density-independent, so 20px is stable across DPRs. */
     --margin: 20px;
+    --gutter: 58px;          /* width of the side bands in gutter mode */
     --ladder-shade: #96905e;   /* overwritten from PAL_TERRAIN.h at boot */
     --ink:   #cfd6dd;
     --dim:   #8c98a4;
@@ -58,12 +59,53 @@
      a wide monitor where the board itself is height-limited.  Everything else
      lives in #column, whose width JS pins to the playfield - so the HUD and
      the writeup are never wider than the board. */
+  #stage { width: 100%; margin-top: var(--margin); }
   #keys { width: 100%; text-align: center; color: var(--dim);
-          line-height: 2.1; margin-top: var(--margin); padding: 0 var(--margin) 6px;
+          line-height: 2.1; padding: 0 var(--margin) 6px;
           box-sizing: border-box; }
-  #column { width: 100%; }
+  #column { width: 100%; margin: 0 auto; }
+  #about { margin-left: auto; margin-right: auto; }
+
+  /* ---- gutter arrangement ------------------------------------------------
+     The board's aspect is fixed at 504:272, so on a viewport that is
+     proportionally wider than that - every phone in landscape - it can only
+     grow by getting TALLER, and it can only get taller if the chrome stops
+     eating vertical space.  The same aspect already forces empty bands at
+     the left and right, so the HUD and the command buttons move into them:
+     the bands cost nothing, and the board gets the full height.  layout()
+     measures both arrangements every time and keeps whichever makes the
+     board bigger, so desktop is untouched.
+     The keyboard legend is dropped here - this arrangement only ever wins on
+     a phone-shaped viewport, where there is no keyboard to legend. */
+  body.gutter #stage { position: relative; }
+  body.gutter #keyhelp { display: none; }
+  body.gutter #keys {
+    position: absolute; top: 0; bottom: 0; right: 0; width: var(--gutter);
+    padding: 0; display: flex; flex-direction: column;
+    align-items: stretch; justify-content: center; gap: 5px;
+  }
+  body.gutter #cmds { display: flex; flex-direction: column; gap: 5px; }
+  /* A narrow band cannot hold "restart" beside its key, so the label goes
+     under it.  Hiding the labels instead would leave a bare "R" that means
+     nothing. */
+  body.gutter #keys .cmd {
+    margin: 0; display: flex; flex-direction: column;
+    align-items: center; gap: 2px; line-height: 1.25;
+  }
+  body.gutter #keys .cmd i { font-size: 9px; }
+  body.gutter #hud {
+    position: absolute; top: 0; bottom: 0; left: 0; width: var(--gutter);
+    padding: 0; display: flex; flex-direction: column;
+    justify-content: center; gap: 8px; text-align: center;
+    font-size: 10px; line-height: 1.3;
+  }
+  body.gutter #tagline { flex: none; white-space: normal; overflow: visible; }
+  /* the long instructional tagline will not fit a narrow band; the start cue
+     still must, so keep that one and drop the other */
+  body.gutter #tagline:not(.cue) { display: none; }
   #keys .sep { color: var(--faint); margin: 0 .45em; }
   #keys .cmd { white-space: nowrap; margin: 0 .35em; }
+  #keys i { font-style: normal; }
 
   /* Mobile has no keyboard, so the infrequent commands double as buttons.
      The movement and shoot keys are deliberately NOT tappable: they are too
@@ -95,6 +137,7 @@
      start cue while frozen.  A separate hint row cost a whole line of
      height, and on a landscape phone height is what limits the board. */
   #tagline.cue { color: var(--gold); }
+  .nw { white-space: nowrap; }
 
   kbd { display: inline-block; min-width: 1.1em; padding: 1px 5px; margin: 0 1px;
         border: 1px solid #47525d; border-bottom-width: 2px; border-radius: 3px;
@@ -174,6 +217,7 @@
      14px, which costs roughly 26px of board width on a landscape phone -
      worth it for commands you cannot otherwise reach without a keyboard. */
   @media (pointer: coarse) {
+    :root { --gutter: 72px; }
     #keys .cmd.tap { padding: 7px 9px; }
     /* an em-based min-width shrinks with the compact font, so pin it in px */
     #keys kbd.tap { min-width: 30px; padding: 7px 6px; }
@@ -187,16 +231,17 @@
 </head>
 <body tabindex="0">
 
+<div id="stage">
+
 <div id="keys">
-  <span class="cmd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>/<kbd>Q</kbd><kbd>E</kbd></span>
+  <span id="keyhelp"><span class="cmd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>/<kbd>Q</kbd><kbd>E</kbd></span>
   <span class="sep">or</span>
   <span class="cmd"><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>/<kbd>U</kbd><kbd>O</kbd> move/shoot</span>
-  <span class="sep">&middot;</span>
-  <span class="cmd tap" data-tap="Space" role="button" aria-label="pause"><kbd>Space</kbd> pause</span>
-  <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> restart</span>
-  <span class="cmd"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
-       class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd> level</span>
-  <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> mute</span>
+  <span class="sep">&middot;</span></span><span id="cmds"><span class="cmd tap" data-tap="Space" role="button" aria-label="pause"><kbd>Space</kbd> <i>pause</i></span>
+  <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> <i>restart</i></span>
+  <span class="cmd"><span class="pair"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
+       class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd></span> <i>level</i></span>
+  <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> <i>mute</i></span></span>
 </div>
 
 <div id="column">
@@ -218,11 +263,15 @@
   </div>
 
   <div id="hud">
-    <span>LEVEL <b id="hudLevel">1</b> / 86</span>
+    <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / 86</span></span>
     <span id="tagline">Collect every chest, then climb out of the top.</span>
-    <span>SOUND <b id="hudSound">on</b></span>
+    <span>SOUND <span class="nw"><b id="hudSound">on</b></span></span>
   </div>
-  <section id="about">
+
+</div>
+</div>
+
+<section id="about">
 <!-- README:BEGIN -->
 <h2>I didn't invent this game!</h2>
 <p>Just to be clear: this is <a href="https://en.wikipedia.org/wiki/Lode_Runner">Lode Runner</a>, a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, <a href="https://cgwmuseum.org/galleries/index.php?year=1985&amp;pub=2&amp;id=21">magazine contests</a>, <a href="https://ndlsearch.ndl.go.jp/books/R100000002-I000001903930">books of levels to copy</a>, and <a href="https://note.com/cyborgmsx/n/n9c87c5cbef81">competitions</a>.</p>
@@ -239,9 +288,7 @@
 <p>Game rules and algorithms are not copyrightable.</p>
 <p>&quot;Lode Runner&quot; is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.</p>
 <!-- README:END -->
-  </section>
-
-</div>
+</section>
 
 <script>
 "use strict";
@@ -3175,24 +3222,41 @@ function draw() {
    so zoom is continuous rather than jumping between integer steps. */
 function layout() {
   const root = document.documentElement;
-  const m = parseFloat(getComputedStyle(root).getPropertyValue("--margin")) || 20;
-  const col = el("column");
+  const cs = getComputedStyle(root);
+  const m = parseFloat(cs.getPropertyValue("--margin")) || 20;
+  const gutter = parseFloat(cs.getPropertyValue("--gutter")) || 58;
+  const col = el("column"), about = el("about"), body = document.body;
+  const fit = function (w, h) {
+    return Math.min(Math.max(160, w) / (TW * AW), Math.max(90, h) / (TH * AH));
+  };
   let cssW = 0, cssH = 0;
 
   /* Two passes: setting the column width can rewrap the key bank, which
      changes its height, which feeds back into the height left for the board. */
   for (let pass = 0; pass < 2; pass++) {
-    const availW = Math.max(160, root.clientWidth - 2 * m - CHROME);
-    /* Only a top margin is charged against the height: the writeup below
-       supplies its own spacing, so reserving a bottom margin here just stole
-       height from the board - and on a short viewport the board is height
-       limited, so that came straight out of its width. */
-    const chromeH = el("keys").offsetHeight + el("hud").offsetHeight;
-    const availH = Math.max(90, root.clientHeight - m - chromeH - CHROME);
-    scale = Math.min(availW / (TW * AW), availH / (TH * AH));
+    const W = root.clientWidth, H = root.clientHeight;
+
+    /* Arrangement A, stack: legend above the board, HUD below it.  Only a
+       top margin is charged, since the writeup supplies its own spacing. */
+    body.classList.remove("gutter");
+    const stackChrome = el("keys").offsetHeight + el("hud").offsetHeight;
+    const stackScale = fit(W - 2 * m - CHROME, H - m - stackChrome - CHROME);
+
+    /* Arrangement B, gutters: HUD and commands in the side bands the fixed
+       aspect already forces, so the board gets the whole height. */
+    const gutterScale = fit(W - 2 * (gutter + m) - CHROME, H - 2 * m - CHROME);
+
+    /* Keep whichever actually makes the board bigger.  No breakpoint to
+       guess at: on a tall window the stack wins, on a phone in landscape the
+       gutters win, and the crossover looks after itself. */
+    const useGutter = gutterScale > stackScale;
+    body.classList.toggle("gutter", useGutter);
+    scale = useGutter ? gutterScale : stackScale;
+
     cssW = Math.round(TW * AW * scale);
     cssH = Math.round(TH * AH * scale);
     col.style.width = (cssW + CHROME) + "px";
+    about.style.width = (cssW + CHROME) + "px";
     cv.style.height = cssH + "px";      /* CSS width comes from width:100% */
   }
 
@@ -3586,8 +3650,13 @@ function pollPad() {
     return now && !was;
   };
   const hitDir     = edge("dir",     dir !== null);
-  const hitShootR  = edge("shootR",  padDown(gp, 0) || padDown(gp, 5) || padDown(gp, 7));
-  const hitShootL  = edge("shootL",  padDown(gp, 1) || padDown(gp, 4) || padDown(gp, 6));
+  /* Buttons 0 and 1 are POSITIONS in the standard mapping - bottom and
+     right - and the standard names them A and B the Xbox way round.  8BitDo
+     pads carry Nintendo's physical labelling, where A is the right button
+     and B is the bottom one, so the button printed A arrives as index 1 and
+     the one printed B as index 0.  Mapped by printed label, not by index. */
+  const hitShootR  = edge("shootR",  padDown(gp, 1) || padDown(gp, 5) || padDown(gp, 7));
+  const hitShootL  = edge("shootL",  padDown(gp, 0) || padDown(gp, 4) || padDown(gp, 6));
   const hitPause   = edge("pause",   padDown(gp, 9));
   const hitRestart = edge("restart", padDown(gp, 8));
 

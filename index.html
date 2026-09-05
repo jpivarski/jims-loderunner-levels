@@ -3291,31 +3291,107 @@ function noise(dur, gain, cut, cutTo) {
   src.start();
 }
 
-/* A sci-fi ray gun.  The descending sweep alone glides cleanly and sounds
-   like a slide whistle; what makes it read as a ray gun is an LFO wired
-   straight into the oscillator's frequency, so the pitch wobbles as it
-   falls. */
-function rayGun(f0, f1, dur, gain, wobbleHz, wobbleDepth, delay) {
-  const a = audio(); if (!a) return;
-  const t0 = a.currentTime + (delay || 0);
-  const o = a.createOscillator(), gn = a.createGain();
+/* ---------------------------------------------------------------------
+   The blaster: "zee-yoo-yoo-yoo".
+
+   The previous attempt used ring modulation and a tanh waveshaper, which is
+   why it came out as a crunch: both generate inharmonic content, and that
+   reads as noise rather than as pitch.  This version is deliberately clean
+   and tonal - you should be able to hum it.
+
+     zee       a bright square carrier starting high, with a lowpass that
+               opens at the attack, so the onset has an edge to it
+     yoo-yoo   a SAWTOOTH LFO into the carrier frequency, with negative
+               depth.  A sine LFO glides up and down symmetrically, which
+               is a wobble; an inverted sawtooth jumps the pitch up and
+               then slides it down, once per cycle, which is a "yoo"
+     slow      about 8 Hz, so the cycles are heard as separate swoops.
+               Around 19 Hz they smear together into a buzz
+     descent   the whole thing sweeps downward underneath the warble
+
+   No ring modulation, no waveshaper, no noise burst.  Every knob is an
+   argument, so variants can be auditioned from the console:
+       blaster({warbleHz: 6, warbleDep: -600, f0: 1500})
+       blaster({warbleHz: 12, dur: 0.7})
+   --------------------------------------------------------------------- */
+let GRIT_CURVE = null;
+
+function gritCurve(amount) {
+  const n = 1024, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * amount);
+  }
+  return curve;
+}
+
+function blaster(o, ctxOverride, destOverride) {
+  o = o || {};
+  const a = ctxOverride || audio();
+  if (!a) return;
+  const dest = destOverride || master;
+  const t = ctxOverride ? 0 : a.currentTime;
+
+  const dur       = o.dur       !== undefined ? o.dur       : 0.52;
+  const f0        = o.f0        !== undefined ? o.f0        : 1150;  /* the "zee" */
+  const f1        = o.f1        !== undefined ? o.f1        : 190;
+  const warbleHz  = o.warbleHz  !== undefined ? o.warbleHz  : 8;     /* the "yoo"s */
+  const warbleDep = o.warbleDep !== undefined ? o.warbleDep : -430;
+  const cut0      = o.cut0      !== undefined ? o.cut0      : 6000;
+  const cut1      = o.cut1      !== undefined ? o.cut1      : 900;
+  const trem      = o.trem      !== undefined ? o.trem      : 0.22;
+  const grit      = o.grit      !== undefined ? o.grit      : 0;
+  const gain      = o.gain      !== undefined ? o.gain      : 0.17;
+  const wave      = o.wave      !== undefined ? o.wave      : "square";
+
+  const carrier = a.createOscillator();
+  carrier.type = wave;
+  carrier.frequency.setValueAtTime(f0, t);
+  carrier.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+
+  /* the warble.  Sawtooth ramps upward over each cycle, so a NEGATIVE depth
+     inverts it: pitch snaps up, then slides down.  That fall is the "yoo". */
   const lfo = a.createOscillator(), depth = a.createGain();
+  lfo.type = "sawtooth";
+  lfo.frequency.setValueAtTime(warbleHz, t);
+  lfo.frequency.linearRampToValueAtTime(warbleHz * 0.65, t + dur);
+  depth.gain.setValueAtTime(warbleDep, t);
+  lfo.connect(depth);
+  depth.connect(carrier.frequency);
 
-  o.type = "sawtooth";
-  o.frequency.setValueAtTime(f0, t0);
-  o.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
+  /* brightness follows the pitch down, so the tail is not shrill */
+  const lp = a.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.Q.setValueAtTime(1.2, t);
+  lp.frequency.setValueAtTime(cut0, t);
+  lp.frequency.exponentialRampToValueAtTime(Math.max(200, cut1), t + dur);
 
-  lfo.type = "sine";
-  lfo.frequency.setValueAtTime(wobbleHz, t0);
-  depth.gain.setValueAtTime(wobbleDepth, t0);
-  lfo.connect(depth); depth.connect(o.frequency);
+  /* a shallow amplitude dip on the same cycle articulates each "yoo" */
+  const tremGain = a.createGain(), tremDepth = a.createGain();
+  tremGain.gain.setValueAtTime(1 - trem, t);
+  tremDepth.gain.setValueAtTime(trem, t);
+  lfo.connect(tremDepth);
+  tremDepth.connect(tremGain.gain);
 
-  gn.gain.setValueAtTime(gain, t0);
-  gn.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
-  o.connect(gn); gn.connect(master);
+  const env = a.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+  env.gain.exponentialRampToValueAtTime(0.0008, t + dur);
 
-  o.start(t0);   lfo.start(t0);
-  o.stop(t0 + dur + 0.02);   lfo.stop(t0 + dur + 0.02);
+  let head = carrier;
+  if (grit > 0) {
+    const shaper = a.createWaveShaper();
+    if (!GRIT_CURVE) GRIT_CURVE = gritCurve(grit);
+    shaper.curve = GRIT_CURVE;
+    shaper.oversample = "2x";
+    head.connect(shaper);
+    head = shaper;
+  }
+  head.connect(lp); lp.connect(tremGain); tremGain.connect(env); env.connect(dest);
+
+  const stop = t + dur + 0.03;
+  carrier.start(t); lfo.start(t);
+  carrier.stop(stop); lfo.stop(stop);
 }
 
 /* The fall is one oscillator held for the whole descent, with its pitch
@@ -3356,12 +3432,8 @@ const SFX = {
   /* The blaster, four layers deep so it reads as a shot rather than a thud:
      a descending "pew", a softer harmonic under it, a bright crack of brick
      shattering that darkens as the debris settles, and a low thump for weight. */
-  shoot:  function () {
-    rayGun(1900, 240, 0.30, 0.11, 34, 430);         /* the zap, warbling down */
-    rayGun(950,  170, 0.26, 0.05, 23, 250, 0.02);   /* an octave under it     */
-    noise(0.26, 0.15, 3000, 400);                   /* brick shattering       */
-    tone(70, 0.24, "sine", 0.13, 40, 0.04);         /* weight                 */
-  },
+  /* Nothing but the tone: a noise layer here is what made it crunch. */
+  shoot:  function () { blaster(); },
   /* And a small thud on touchdown, only after a drop worth hearing. */
   land:   function () { noise(0.09, 0.13, 520); tone(95, 0.13, "sine", 0.11, 55); },
   gold:   function () { tone(880, 0.07, "square", 0.12); tone(1320, 0.10, "square", 0.12, 0, 0.07); },

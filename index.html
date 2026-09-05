@@ -65,6 +65,20 @@
   #keys .sep { color: var(--faint); margin: 0 .45em; }
   #keys .cmd { white-space: nowrap; margin: 0 .35em; }
 
+  /* Mobile has no keyboard, so the infrequent commands double as buttons.
+     The movement and shoot keys are deliberately NOT tappable: they are too
+     small and needed far too often to be usable that way. */
+  #keys .tap { cursor: pointer; border-radius: 4px; touch-action: manipulation;
+               user-select: none; -webkit-user-select: none;
+               -webkit-tap-highlight-color: transparent; }
+  #keys .cmd.tap { padding: 1px 5px; }
+  #keys .tap kbd, #keys kbd.tap { border-color: #6b7a88; }
+  #keys .tap:hover kbd, #keys kbd.tap:hover { background: #222a31; }
+  #keys .tap:active { color: var(--warm); }
+  #keys .tap:active kbd, #keys kbd.tap:active {
+               background: #2f3841; color: #fff; border-bottom-width: 1px;
+               transform: translateY(1px); }
+
   /* The border marks exactly where the playable area starts and ends - which
      is what you need in order to judge whether a ladder reaches the top. */
   #wrap { position: relative; width: 100%;
@@ -77,8 +91,10 @@
   #hud b { color: var(--warm); font-weight: normal; }
   #tagline { flex: 1; text-align: center;
              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #hint { min-height: 1.6em; padding-top: 2px;
-          color: var(--gold); text-align: center; }
+  /* the centre slot does double duty: the tagline while playing, and the
+     start cue while frozen.  A separate hint row cost a whole line of
+     height, and on a landscape phone height is what limits the board. */
+  #tagline.cue { color: var(--gold); }
 
   kbd { display: inline-block; min-width: 1.1em; padding: 1px 5px; margin: 0 1px;
         border: 1px solid #47525d; border-bottom-width: 2px; border-radius: 3px;
@@ -133,6 +149,36 @@
                          text-align: left; }
   #about th { background: var(--panel); color: var(--warm); font-weight: normal; }
 
+  /* A phone in landscape is proportionally wider than the board's 504:272,
+     so the board is always height limited there and vertical chrome is
+     expensive: on a 844x390 viewport the original spacing cost 183px of
+     board width.  Shrink the margin and the help text rather than hiding
+     them. */
+  /* Any short window benefits from smaller help text... */
+  @media (max-height: 560px) {
+    #keys { font-size: 10px; line-height: 1.5; padding-bottom: 3px; }
+    #keys kbd { padding: 0 3px; margin: 0; border-bottom-width: 1px; }
+    #keys .cmd { margin: 0 .3em; }
+    #keys .sep { margin: 0 .25em; }
+    #hud { font-size: 11px; padding-top: 3px; letter-spacing: 0; }
+  }
+
+  /* ...but give up the 20px margin only when the height is genuinely
+     phone-sized (a landscape phone is 375-412px), so an ordinary short
+     desktop window keeps the margin it was asked to have. */
+  @media (max-height: 480px) {
+    :root { --margin: 8px; }
+  }
+
+  /* A finger needs far more than a 10px glyph.  These grow the row by about
+     14px, which costs roughly 26px of board width on a landscape phone -
+     worth it for commands you cannot otherwise reach without a keyboard. */
+  @media (pointer: coarse) {
+    #keys .cmd.tap { padding: 7px 9px; }
+    /* an em-based min-width shrinks with the compact font, so pin it in px */
+    #keys kbd.tap { min-width: 30px; padding: 7px 6px; }
+  }
+
   #sheet { padding: 24px; }
   #sheet h3 { color: var(--cyan); font-weight: normal; margin: 1.4em 0 .5em; }
   #sheet .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
@@ -142,14 +188,15 @@
 <body tabindex="0">
 
 <div id="keys">
-  <span class="cmd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
-  <span class="cmd"><kbd>Q</kbd><kbd>E</kbd> shoot</span><span class="sep">or</span>
-  <span class="cmd"><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> move</span>
-  <span class="cmd"><kbd>U</kbd><kbd>O</kbd> shoot</span><span class="sep">&middot;</span>
-  <span class="cmd"><kbd>Space</kbd> pause</span>
-  <span class="cmd"><kbd>R</kbd> restart</span>
-  <span class="cmd"><kbd>[</kbd><kbd>]</kbd> level</span>
-  <span class="cmd"><kbd>M</kbd> mute</span>
+  <span class="cmd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>/<kbd>Q</kbd><kbd>E</kbd></span>
+  <span class="sep">or</span>
+  <span class="cmd"><kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>/<kbd>U</kbd><kbd>O</kbd> move/shoot</span>
+  <span class="sep">&middot;</span>
+  <span class="cmd tap" data-tap="Space" role="button" aria-label="pause"><kbd>Space</kbd> pause</span>
+  <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> restart</span>
+  <span class="cmd"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
+       class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd> level</span>
+  <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> mute</span>
 </div>
 
 <div id="column">
@@ -175,8 +222,6 @@
     <span id="tagline">Collect every chest, then climb out of the top.</span>
     <span>SOUND <b id="hudSound">on</b></span>
   </div>
-  <div id="hint"></div>
-
   <section id="about">
 <!-- README:BEGIN -->
 <h2>I didn't invent this game!</h2>
@@ -3138,9 +3183,12 @@ function layout() {
      changes its height, which feeds back into the height left for the board. */
   for (let pass = 0; pass < 2; pass++) {
     const availW = Math.max(160, root.clientWidth - 2 * m - CHROME);
-    const chromeH = el("keys").offsetHeight + el("hud").offsetHeight +
-                    el("hint").offsetHeight;
-    const availH = Math.max(90, root.clientHeight - 2 * m - chromeH - CHROME);
+    /* Only a top margin is charged against the height: the writeup below
+       supplies its own spacing, so reserving a bottom margin here just stole
+       height from the board - and on a short viewport the board is height
+       limited, so that came straight out of its width. */
+    const chromeH = el("keys").offsetHeight + el("hud").offsetHeight;
+    const availH = Math.max(90, root.clientHeight - m - chromeH - CHROME);
     scale = Math.min(availW / (TW * AW), availH / (TH * AH));
     cssW = Math.round(TW * AW * scale);
     cssH = Math.round(TH * AH * scale);
@@ -3393,6 +3441,7 @@ let held = [], latched = false, latchedDir = null, jumpBuf = "";
 
 function refreshAction() {
   if (held.length) { latchedDir = held[held.length - 1]; keyAction = DIR2ACT[latchedDir]; }
+  else if (padDir) { latchedDir = padDir; keyAction = DIR2ACT[padDir]; }
   else if (latched && latchedDir) keyAction = DIR2ACT[latchedDir];
   else keyAction = A_STOP;
 }
@@ -3464,16 +3513,100 @@ function onKeyUp(e) {
 
 let hintTimer = 0;
 
-/* Sits below the HUD, outside the border, so it cues the frozen state without
-   shading any part of the board. */
+const TAGLINE = "Collect every chest, then climb out of the top.";
+
+/* Shown in the HUD's centre slot, outside the border, so the frozen state is
+   cued without shading any part of the board. */
 function refreshHint() {
-  el("hint").textContent = (state === "ready") ? "press any key to start" : "";
+  const t = el("tagline"), frozen = state === "ready";
+  t.textContent = frozen ? "press any key to start" : TAGLINE;
+  t.classList.toggle("cue", frozen);
 }
 
 function showHint(text) {
   clearTimeout(hintTimer);
-  el("hint").textContent = text;
+  const t = el("tagline");
+  t.textContent = text;
+  t.classList.add("cue");
   hintTimer = setTimeout(refreshHint, 2200);
+}
+
+/* ========================================================================
+   Gamepad.  Undocumented on purpose - it just works when a pad is attached.
+
+       D-pad or left stick   move
+       A                     shoot right        B      shoot left
+       R / RT                shoot right        L / LT shoot left
+       Start                 pause              Back   restart the level
+
+   Start and Back matter more than they look. On a phone with a controller
+   there is no keyboard at all, so without them there would be no way to
+   pause, and no way out of a level you had made unwinnable.
+
+   The API reports button state rather than firing events, so this is polled
+   from the frame loop.  Two robustness notes: an 8BitDo Zero has no analog
+   stick, and depending on its mode it reports the D-pad either as buttons
+   12-15 or as axes 0/1, so both are read; and directions must be
+   edge-triggered to lift the frozen start, otherwise holding the D-pad
+   through a level transition would skip past the frozen board that holding
+   a key correctly does not.
+   ======================================================================== */
+const PAD_DEADZONE = 0.5;
+let padDir = null;             /* direction currently held on the pad */
+const padWas = {};             /* previous frame, for edge detection */
+
+function padDown(gp, i) {
+  const b = gp.buttons[i];
+  return !!b && (typeof b === "object" ? b.pressed : b > 0.5);
+}
+
+function pollPad() {
+  if (!navigator.getGamepads) return;
+  let gp = null;
+  const pads = navigator.getGamepads();
+  for (let i = 0; i < pads.length; i++)
+    if (pads[i] && pads[i].connected) { gp = pads[i]; break; }
+
+  if (!gp) {
+    if (padDir !== null) { padDir = null; refreshAction(); }
+    return;
+  }
+
+  const ax = gp.axes || [];
+  const up    = padDown(gp, 12) || ax[1] < -PAD_DEADZONE;
+  const down  = padDown(gp, 13) || ax[1] >  PAD_DEADZONE;
+  const left  = padDown(gp, 14) || ax[0] < -PAD_DEADZONE;
+  const right = padDown(gp, 15) || ax[0] >  PAD_DEADZONE;
+  /* vertical wins a diagonal, so ladders stay reliable under a sloppy thumb */
+  const dir = up ? "up" : down ? "down" : left ? "left" : right ? "right" : null;
+
+  const edge = function (name, now) {
+    const was = padWas[name];
+    padWas[name] = now;
+    return now && !was;
+  };
+  const hitDir     = edge("dir",     dir !== null);
+  const hitShootR  = edge("shootR",  padDown(gp, 0) || padDown(gp, 5) || padDown(gp, 7));
+  const hitShootL  = edge("shootL",  padDown(gp, 1) || padDown(gp, 4) || padDown(gp, 6));
+  const hitPause   = edge("pause",   padDown(gp, 9));
+  const hitRestart = edge("restart", padDown(gp, 8));
+
+  if (hitRestart) { startLevel(level); padDir = dir; return; }
+
+  if (state === "ready" && (hitDir || hitShootR || hitShootL || hitPause)) {
+    audio();
+    state = "run";
+    refreshHint();
+    /* the input that unfroze must not also pause, matching Space */
+    if (hitPause) { if (dir !== padDir) { padDir = dir; refreshAction(); } return; }
+  } else if (hitPause) {
+    if (state === "run") { fallStop(); state = "pause"; el("pause").classList.remove("hide"); }
+    else if (state === "pause") { state = "run"; el("pause").classList.add("hide"); }
+  }
+
+  if (hitShootR) pendingShoot = 1;
+  if (hitShootL) pendingShoot = -1;
+  if (dir !== padDir) { padDir = dir; refreshAction(); }
 }
 
 /* ========================================================================
@@ -3536,6 +3669,7 @@ function tick() {
 let acc = 0, lastTs = 0;
 function frame(ts) {
   requestAnimationFrame(frame);
+  pollPad();
   if (!lastTs) lastTs = ts;
   let dt = ts - lastTs;
   lastTs = ts;
@@ -3620,11 +3754,38 @@ function init() {
   startLevel(0);      /* builds the map, and leaves the board frozen */
   layout();           /* needs the map to exist, since it draws */
   window.addEventListener("resize", layout);
+  window.addEventListener("orientationchange", layout);
+  /* the URL bar collapsing on a phone resizes the visual viewport without
+     always firing a window resize */
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", layout);
   watchDpr();
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
   document.body.focus();
   document.body.addEventListener("mousedown", function () { document.body.focus(); });
+  /* On a phone the only gesture may be a tap, and a gamepad button press is
+     not a user activation, so autoplay policy needs this to unlock sound. */
+  document.body.addEventListener("pointerdown", function () { audio(); });
+
+  /* Taps are replayed as the corresponding keydown/keyup, so pause, restart,
+     level change and mute keep exactly one implementation each.  pointerdown
+     rather than click, so it responds without the tap delay. */
+  el("keys").addEventListener("pointerdown", function (e) {
+    const t = e.target.closest("[data-tap]");
+    if (!t) return;
+    e.preventDefault();
+    audio();
+    const code = t.dataset.tap;
+    window.dispatchEvent(new KeyboardEvent("keydown", {code: code, bubbles: true, cancelable: true}));
+    window.dispatchEvent(new KeyboardEvent("keyup",   {code: code, bubbles: true, cancelable: true}));
+    document.body.focus();
+  });
+  window.addEventListener("gamepadconnected", function (e) {
+    console.log("gamepad: " + e.gamepad.id + " (mapping: " +
+                (e.gamepad.mapping || "non-standard") + ", " +
+                e.gamepad.buttons.length + " buttons, " +
+                e.gamepad.axes.length + " axes)");
+  });
 
   requestAnimationFrame(frame);
 }

@@ -20,7 +20,7 @@ It's like chess with reaction time. The architecture of a level forces you to pl
 
 The guards are idiots. They have an algorithm, but it only sometimes involves chasing you. Nevertheless, you need to learn their algorithm because they can carry gold, and you need to get it from them. In some levels, the gold is hidden in places that you can't get to, but you can kill the guards (by burying them and letting the ground swallow them up) to make them respawn, sometimes in the places where you need them.
 
-Also, you fall faster than they do. Sometimes, that's a part of the puzzle.
+Also, you fall faster than they do. That can be a part of the puzzle, too.
 
 There's a lot to think about!
 

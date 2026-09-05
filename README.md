@@ -1,73 +1,25 @@
 # Jim's Levels
 
-86 Lode Runner levels I designed when I was 10 years old, playable in a browser.
+86 Lode Runner levels I made when I was 10 years old, playable in a browser.
 
 **[▶ Play](https://jpivarski.github.io/jims-loderunner-levels/)**
 
-The whole game is a single `index.html` — no build step, no libraries, no external
-requests. Open it and press any key to start.
-
-Every level begins frozen and unshaded, so you get to read the board and plan a
-route before anything can reach you. That includes after you are caught: press a
-key when you are ready.
-
 <!-- COPY HERE -->
 
-## Controls
+# I didn't invent this game!
 
-Both control sets are live at the same time and are fully interchangeable, so you
-can play left-handed, right-handed, or with a hand on each.
+Just to be clear: the game is [Lode Runner](https://www.filfre.net/2020/12/lode-runner/), a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, [magazine contests](https://cgwmuseum.org/galleries/index.php?year=1985&pub=2&id=21), books of levels to copy, and competitions.
 
-| Action | Left hand | Right hand | Arrows |
-|---|---|---|---|
-| move left | `A` | `J` | `←` |
-| move right | `D` | `L` | `→` |
-| climb up | `W` | `I` | `↑` |
-| climb down | `S` | `K` | `↓` |
-| shoot the block down-left | `Q` | `U` | — |
-| shoot the block down-right | `E` | `O` | — |
+What you see above are _my_ levels, which I made when I was 10. I was lucky enough to find the disks and have access to an appropriate-era computer, so I got the data off the disks by converting the binary to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and fixing the mistakes. Fortunately, the files are very small.
 
-`Space` pause · `R` restart the level · `[` `]` previous/next level ·
-type a number then `Enter` to jump to a level · `M` mute ·
-`T` switch between hold-to-move and latched (Apple II style) movement
+<a href="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="400">
 
-## How it plays
+# Who owns Lode Runner? Is this site legal?
 
-Collect every chest on the screen. When the last one is gone, hidden ladders appear
-and you escape out the top row. The border around the playfield is there so you can
-tell whether a ladder actually reaches the top. Guards chase you; shoot a hole in a brick floor to
-drop one in, and you can run across its head while it struggles. Holes fill back in
-after a few seconds — and they will crush whatever is still standing in them,
-including you.
+The original game was created by Douglas Smith and published by Brøderbund in 1983. The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by Tozai Games, who created a new version, [Lode Runner Legacy](https://global.tozaigames.com/legacy/) ([Steam](https://store.steampowered.com/app/628660/Lode_Runner_Legacy/)), which includes the classic levels.
 
-Steel blocks cannot be shot. Some bricks are false and you fall straight through.
-Lives are infinite and there is no score: the only goal is the next screen.
+This website has none of the original levels, only the ones that I designed, and the game engine is rewritten from scratch. It was inspired by [LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_TotalRecall) by Simon Hung, which has no license, but I didn't copy any code from it.
 
-## About the levels
+Game rules and algorithms are not copyrightable.
 
-The levels came off a 34 KB file I wrote as a kid, in the Apple II layout: 224 bytes
-per level holding 448 nibbles for a 28×16 grid, low nibble the left tile and high
-nibble the right. 86 of the 151 available slots were filled. The decoded levels are
-embedded in `index.html` as ASCII art, and 85 of the 86 re-encode byte-identically to
-the original file. Two cells in level 16 held tile values that do not exist (13 and
-14); both were isolated cells in open space, and I render them as empty.
-
-## Provenance and credits
-
-Everything here — the engine, the pixel art, the synthesized sound, and the level
-designs — is my own original work, under the BSD 3-Clause license in `LICENSE`. Note
-that the third clause means my name may not be used to endorse derived works without
-permission.
-
-The mechanics reimplement the 1983 original by **Douglas E. Smith**, published by
-**Brøderbund**. Game rules and algorithms are not copyrightable, so this is a
-from-scratch implementation of behavior, not a port.
-
-While building it I read **[LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_TotalRecall)**
-by **Simon Hung** as a behavioral reference for timing constants and guard AI. That
-project carries no license of any kind, so none of its code, sprites, or audio is
-used here — only my own reimplementation of the behavior it documents.
-
-*Lode Runner* is a trademark of **Tozai Games**. This project is unaffiliated with and
-unendorsed by Tozai Games or any other rights holder, and contains none of the
-commercial level data — only my 86 levels.
+"Lode Runner" is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.

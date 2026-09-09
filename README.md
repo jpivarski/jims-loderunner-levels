@@ -2,7 +2,7 @@
 
 [Click here to play the 86 Lode Runner levels I made when I was a kiddo.](https://jpivarski.github.io/jims-loderunner-levels/)
 
-<a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="500"></a>
+<a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="500" style="margin-left: auto; margin-right: auto;"></a>
 
 <!-- BEGIN HERE -->
 
@@ -12,7 +12,7 @@ Just to be clear: this is [Lode Runner](https://en.wikipedia.org/wiki/Lode_Runne
 
 **What you see above are _my_ levels, which I made when I was 10.** I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing the text, interpreting it with OCR, and then fixing the transcription errors. Fortunately, the files are very small.
 
-<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500">
+<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500" style="margin-left: auto; margin-right: auto;">
 
 ## Lode Runner is awesome
 
@@ -30,7 +30,7 @@ My levels are not especially challenging. If you want to solve something fiendis
 
 [Click here to play the Stephen Linhart's 30 "sneaky levels".](https://jpivarski.github.io/jims-loderunner-levels/?levels=stephen-linhart-sneaky-levels.json&readme=stephen-linhart-sneaky-levels.md)
 
-<a href="https://jpivarski.github.io/jims-loderunner-levels/?levels=stephen-linhart-sneaky-levels.json&readme=stephen-linhart-sneaky-levels.md"><img src="img/stephen-linhart-level-1.png" alt="Click here to play!" width="500"></a>
+<a href="https://jpivarski.github.io/jims-loderunner-levels/?levels=stephen-linhart-sneaky-levels.json&readme=stephen-linhart-sneaky-levels.md"><img src="img/stephen-linhart-level-1.png" alt="Click here to play!" width="500" style="margin-left: auto; margin-right: auto;"></a>
 
 I found them on [a newsgroup from 1997](https://info-mac.org/viewtopic.php?t=5066):
 
@@ -49,9 +49,9 @@ Simon Hung's [LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_To
 
 ## Who owns Lode Runner? Is this site legal?
 
-The original game was created by Douglas Smith and published by Brøderbund in 1983 ([full story](https://www.filfre.net/2020/12/lode-runner/)). The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by [Tozai Games](https://global.tozaigames.com/), who created a new version, [Lode Runner Legacy](https://global.tozaigames.com/legacy/) ([Steam](https://store.steampowered.com/app/628660/Lode_Runner_Legacy/)), which includes the classic levels.
+The original game was created by Douglas Smith and published by Brøderbund in 1983 ([full story](https://www.filfre.net/2020/12/lode-runner/)). The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by [Tozai Games](https://global.tozaigames.com/), and they created a new version, [Lode Runner Legacy](https://global.tozaigames.com/legacy/) ([Steam](https://store.steampowered.com/app/628660/Lode_Runner_Legacy/)), which includes the classic levels.
 
-This website has none of the classic levels, only the ones that I designed, and the game engine is rewritten from scratch. It was inspired by Simon Hung's [LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_TotalRecall), which has no license, but I didn't copy any code from it. The pixel art and sounds on this site are also original.
+This website has none of the classic levels, only ones that I have permission to distribute, and the game engine is rewritten from scratch. It was inspired by Simon Hung's [LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_TotalRecall), which has no license, but I didn't copy any code from it. The pixel art and sounds on this site are also original.
 
 Game rules and algorithms are not copyrightable.
 

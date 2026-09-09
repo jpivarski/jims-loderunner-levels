@@ -2,7 +2,15 @@
 <html lang="en">
 <!--
   ===========================================================================
-  Jim's Levels  -  86 Lode Runner levels I designed when I was 10 years old.
+  Jim's Levels  -  a Lode Runner engine that plays whatever level set it is
+  pointed at.  Neither the levels nor the writeup below the board live in this
+  file; both are fetched at run time:
+
+      ?levels=URL   the level set, as JSON     (default levels.json, the 86
+                                                levels I designed when I was 10)
+      ?readme=URL   the writeup, as Markdown   (default README.md)
+
+  Both accept absolute or relative URLs.
 
   Code, pixel art, sound synthesis and level designs (c) 2026 Jim Pivarski.
   Released under the BSD 3-Clause License; see LICENSE.
@@ -16,7 +24,7 @@
 
   "Lode Runner" is a trademark of Tozai Games. This project is unaffiliated
   with and unendorsed by Tozai Games or any other rights holder, and contains
-  none of the commercial level data - only my own 86 levels.
+  none of the commercial level data - in fact no level data at all.
 
   Behavioral reference consulted while implementing (read, never copied; it
   carries no license of any kind):
@@ -127,6 +135,11 @@
           border: 2px solid var(--ladder-shade); padding: 2px; }
   canvas { display: block; width: 100%; background: #000;
            image-rendering: pixelated; image-rendering: crisp-edges; }
+  /* Holds the board's box open for the moment between first paint and the
+     levels arriving; layout() then sets an explicit height, which wins.
+     On #cv and not on canvas, or the sprite sheet's own canvases - which are
+     72x68, not 504x272 - get squashed into the board's shape. */
+  #cv { aspect-ratio: 504 / 272; }
 
   #hud { display: flex; width: 100%; gap: 1em; padding-top: 6px;
          color: var(--dim); letter-spacing: .04em; }
@@ -159,34 +172,87 @@
                  animation: blink 1.1s infinite steps(1); }
   @keyframes blink { 50% { opacity: .25 } }
 
-  /* ---- the writeup, injected from README.md by tools/readme_to_html.py ---- */
-  #about { width: 100%; line-height: 1.7; color: var(--dim);
-           margin: calc(var(--margin) * 2) 0 calc(var(--margin) * 2);
-           padding-top: var(--margin);
-           border-top: 2px solid var(--ladder-shade); }
+  /* Shown in place of the board when the level file cannot be loaded.  It has
+     to be its own element rather than borrowing #about: the writeup arrives
+     independently, and whichever of the two landed second would erase the
+     other. */
+  #loadfail { width: 100%; max-width: 46em; line-height: 1.7; color: var(--dim);
+              margin: calc(var(--margin) * 3) auto calc(var(--margin) * 2);
+              padding: 0 var(--margin); }
+  #loadfail.hide { display: none; }
+  #loadfail h2 { color: var(--cyan); font-weight: normal; font-size: 1.25em;
+                 line-height: 1.3; margin: 0 0 .8em; }
+  #loadfail pre { background: var(--panel); border: 1px solid var(--rule);
+                  border-radius: 4px; padding: .8em 1em; color: var(--warm);
+                  white-space: pre-wrap; overflow-x: auto; }
+  /* With no board there is no width to inherit, so charge it side padding. */
+  body.loadfail #about { padding-left: var(--margin); padding-right: var(--margin); }
+
+  /* ---- the writeup, rendered from Markdown at load time ----
+     Running text gets its own typography, deliberately unlike the game's.
+     The board and its chrome are monospace at 13px because they are a grid of
+     fixed-width cells; prose is not, and prose set to the board's width came
+     out at about 157 characters a line - more than twice the 75 or so that is
+     comfortable to read.  So: a proportional face, a size above the browser's
+     own 16px default, and a column of its own rather than the board's width,
+     which on a wide monitor is enormous.  On a phone the board is narrower
+     than the column, so the two still line up.
+     A rule above and below, both the width of the column: the text reads as
+     one panel with a clear end, rather than trailing off the page. */
+  #about { width: 100%; max-width: 580px;      /* ~75 characters at 17px */
+           font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+                        Roboto, Helvetica, Arial, sans-serif;
+           font-size: 17px; line-height: 1.65; color: var(--ink);
+           margin: calc(var(--margin) * 2) auto calc(var(--margin) * 3);
+           padding: var(--margin) 0;
+           border-top: 2px solid var(--ladder-shade);
+           border-bottom: 2px solid var(--ladder-shade); }
+  /* ...and without this the pair of them would draw a stray double rule under
+     the board on a page whose writeup has not arrived yet, or has none */
+  #about:empty { display: none; }
+  /* the first and last blocks give up their own margins, so the space inside
+     the two rules is the padding above and exactly the padding below */
   #about > :first-child { margin-top: 0; }
+  #about > :last-child { margin-bottom: 0; }
+  /* Headings are cream and bold; links are cyan and underlined.  They used to
+     share --cyan, which made every link look like a heading. */
   #about h1, #about h2, #about h3, #about h4 {
-           color: var(--cyan); font-weight: normal; line-height: 1.3;
-           margin: 1.8em 0 .6em; }
+           color: var(--warm); font-weight: 600; line-height: 1.25;
+           letter-spacing: .01em; margin: 1.9em 0 .5em; }
   #about h1 { font-size: 1.5em; }
-  #about h2 { font-size: 1.25em; }
-  #about h3 { font-size: 1.1em; }
-  #about h4 { font-size: 1em; color: var(--warm); }
-  #about p, #about li { margin: .7em 0; }
-  #about strong { color: var(--warm); font-weight: normal; }
-  #about em { color: var(--ink); }
-  #about a { color: var(--cyan); text-decoration-color: #1f6b75; }
-  #about a:hover { color: #7ce6f2; }
-  #about ul, #about ol { padding-left: 1.6em; }
+  #about h2 { font-size: 1.28em; }
+  #about h3 { font-size: 1.12em; }
+  #about h4 { font-size: 1em; color: var(--ink); }
+  #about p { margin: .8em 0; }
+  #about li { margin: .8em 0; padding-left: .15em; }
+  #about strong { color: var(--warm); font-weight: 600; }
+  #about em { color: inherit; }
+  #about a { color: var(--cyan); text-decoration-thickness: 1px;
+             text-underline-offset: .18em; text-decoration-color: #2b8f9c; }
+  #about a:hover { color: #7ce6f2; text-decoration-color: #7ce6f2; }
+  #about ul, #about ol { padding-left: 1.5em; }
+  /* code stays monospace even though the prose around it no longer is, and is
+     nudged down because a monospace face at the same px looks bigger */
+  #about code, #about pre {
+                font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                font-size: .88em; }
   #about code { background: var(--panel); color: var(--warm);
                 padding: .1em .35em; border-radius: 3px; }
   #about pre { background: var(--panel); border: 1px solid var(--rule);
-               border-radius: 4px; padding: .8em 1em; overflow-x: auto; }
-  #about pre code { background: none; padding: 0; color: var(--ink); }
-  #about blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; color: var(--faint);
+               border-radius: 4px; padding: .8em 1em; overflow-x: auto;
+               line-height: 1.5; margin: 1em 0; }
+  #about pre code { background: none; padding: 0; color: var(--ink);
+                    font-size: 1em; }
+  #about blockquote { margin: 1em 0; padding: .2em 0 .2em 1em;
+                      color: var(--dim);
                       border-left: 2px solid var(--ladder-shade); }
   #about hr { border: 0; border-top: 1px solid var(--rule); margin: 2em 0; }
-  #about img { max-width: 100%; height: auto; }
+  /* Block, so that a picture on a line of its own centres in the column - and
+     block whether or not it is wrapped in a link, since Markdown puts a bare
+     image straight into #about but a linked one inside a paragraph, where an
+     inline image would sit against the left edge instead. */
+  #about img { max-width: 100%; height: auto;
+               display: block; margin-left: auto; margin-right: auto; }
   #about table { border-collapse: collapse; margin: 1em 0; }
   #about th, #about td { border: 1px solid #3a4048; padding: .35em .8em;
                          text-align: left; }
@@ -228,6 +294,19 @@
   #sheet .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   #sheet figure { margin: 0; text-align: center; color: var(--faint); font-size: 11px; }
 </style>
+
+<!-- The writeup is Markdown now, fetched and rendered here instead of being
+     pre-rendered into this file by a script.  Pinned by version and by SRI
+     hash; marked publishes no .min.js, so this is the UMD build that is
+     actually in the npm package.  `defer` so that the game's own script (at
+     the end of <body>) runs first and gets the level fetch started without
+     waiting on the CDN. -->
+<script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.12/lib/marked.umd.js"
+        integrity="sha384-TuL/7aNYXEDWjlcHi2CR+Een2A5pigrtJ97Tmx3WG69mx5kCSp8yKHRISW9xSmgq"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.15/dist/purify.min.js"
+        integrity="sha384-uUMu9JDY09vBzRf9SPcK2VgUj+W/70J6Soc+Dded5P474ElQ63iv9j5N3DE7Kp3N"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body tabindex="0">
 
@@ -241,6 +320,8 @@
   <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> <i>restart</i></span>
   <span class="cmd"><span class="pair"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
        class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd></span> <i>level</i></span>
+  <span class="cmd"><span class="pair"><kbd class="tap" data-tap="Minus" role="button" aria-label="slower">-</kbd><kbd
+       class="tap" data-tap="Equal" role="button" aria-label="faster">+</kbd></span> <i>speed</i></span>
   <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> <i>mute</i></span></span>
 </div>
 
@@ -256,74 +337,81 @@
 
     <div id="win" class="overlay hide">
       <h1>CONGRATULATIONS!</h1>
-      <h2>All 86 levels complete</h2>
-      <p>You finished every level I designed as a 10-year-old.</p>
+      <h2 id="winTitle"></h2>
+      <p id="winNote"></p>
       <p class="go">press <kbd>R</kbd> to play again from level 1</p>
     </div>
   </div>
 
   <div id="hud">
-    <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / 86</span></span>
-    <span id="tagline">Collect every chest, then climb out of the top.</span>
+    <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / <b id="hudCount">-</b></span></span>
+    <span id="tagline" class="cue">loading levels...</span>
+    <span>SPEED <span class="nw"><b id="hudSpeed">mid</b></span></span>
     <span>SOUND <span class="nw"><b id="hudSound">on</b></span></span>
   </div>
 
 </div>
 </div>
 
-<section id="about">
-<!-- README:BEGIN -->
-<h2>I didn't invent this game!</h2>
-<p>Just to be clear: this is <a href="https://en.wikipedia.org/wiki/Lode_Runner">Lode Runner</a>, a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, <a href="https://cgwmuseum.org/galleries/index.php?year=1985&amp;pub=2&amp;id=21">magazine contests</a>, <a href="https://ndlsearch.ndl.go.jp/books/R100000002-I000001903930">books of levels to copy</a>, and <a href="https://note.com/cyborgmsx/n/n9c87c5cbef81">competitions</a>.</p>
-<p><strong>What you see above are <em>my</em> levels, which I made when I was 10.</strong> I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and then fixing the transcription errors. Fortunately, the files are very small.</p>
-<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500">
-<h2>Lode Runner is awesome</h2>
-<p>It's like chess with reaction time. The architecture of a level forces you to plan how you're going to get all of the golds without getting eaten by the guards, and then implement it. You can't jump, and although you can shoot, you don't shoot the guards. You shoot the floor: to jump through it, to (temporarily) trap a guard, or to dig out some deeply buried gold. But think carefully, because you need a place to stand while digging.</p>
-<p>The guards are idiots. They have an algorithm, but it only sometimes involves chasing you. Nevertheless, you need to learn their algorithm because they can carry gold, and you need to get it from them. In some levels, the gold is hidden in places that you can't get to, but you can kill the guards (by burying them and letting the ground swallow them up) to make them respawn, sometimes in the places where you need them.</p>
-<p>Also, you fall faster than they do. That can be a part of the puzzle, too.</p>
-<p>There's a lot to think about!</p>
-<h2>Who owns Lode Runner? Is this site legal?</h2>
-<p>The original game was created by Douglas Smith and published by Brøderbund in 1983 (<a href="https://www.filfre.net/2020/12/lode-runner/">full story</a>). The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by <a href="https://global.tozaigames.com/">Tozai Games</a>, who created a new version, <a href="https://global.tozaigames.com/legacy/">Lode Runner Legacy</a> (<a href="https://store.steampowered.com/app/628660/Lode_Runner_Legacy/">Steam</a>), which includes the classic levels.</p>
-<p>This website has none of the classic levels, only the ones that I designed, and the game engine is rewritten from scratch. It was inspired by <a href="https://github.com/SimonHung/LodeRunner_TotalRecall">LodeRunner_TotalRecall</a> by Simon Hung, which has no license, but I didn't copy any code from it. The pixel art and sounds on this site are also original.</p>
-<p>Game rules and algorithms are not copyrightable.</p>
-<p>&quot;Lode Runner&quot; is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.</p>
-<!-- README:END -->
-</section>
+<div id="loadfail" class="hide"></div>
+
+<section id="about"></section>
 
 <script>
 "use strict";
 
 /* ========================================================================
-   Geometry.  Physics runs in 40x44 "logical units" per tile because that is
-   what makes the movement feel right: xMove of 8 gives exactly 5 ticks to
-   cross a tile, and yMove of 9 against a 44-unit tile deliberately does NOT
-   divide evenly, so vertical position is not periodic per tile.  The 18x17
-   pixel art is a completely separate concern, mapped at draw time.
+   Geometry.  Physics runs in 40x40 "logical units" per tile, moved 8 units
+   at a time, so an actor crosses a tile in exactly 5 steps - the same 5 in
+   both axes, which is what the 1984 Macintosh original does: its offsets are
+   bytes in [0,4] with the tile centre at 2, stepped by one per tick, running,
+   climbing, hanging and falling alike.  There is no separate fall speed.
+   The 18x17 pixel art is a completely separate concern, mapped at draw time
+   (the original blits on the same 18x17 pitch).
    ======================================================================== */
 const TW = 28, TH = 16;              // playfield, in tiles
 const AW = 18, AH = 17;              // art pixels per tile
-const LW = 40, LH = 44;              // logical units per tile
-const W2 = 20, H2 = 22, W4 = 10, H4 = 11;
-const XMOVE = 8, YMOVE = 9;
-const FPS = 23, TICK_MS = 1000 / FPS;
+const LW = 40, LH = 40;              // logical units per tile
+const W2 = 20, H2 = 20, W4 = 10, H4 = 10;
+const XMOVE = 8, YMOVE = 8;
 
-const DIG_TICKS   = 11;   // runner frozen this long while shooting
-const DIG_LIMIT   = 8;    // guard entering the debris tile before this aborts
-const HOLE_TICKS  = 187;  // hole lifetime once open
-const HOLE_WARN   = 20;   // refill masks play over the final N ticks
-const SHAKE_TICKS = 67;   // guard struggles in a hole this long
-const BORN_TICKS  = 10;
+/* The original is paced by a VBL task: it arms a counter with the Options
+   menu's speed setting and spins until the 60.15 Hz retrace has counted it
+   down.  The three menu settings are delays of 2, 3 and 4 retraces, so what
+   the setting changes is the tick RATE and nothing else - every count below,
+   and every count in ticks anywhere in this file, is the same at any speed.
+   `-` and `+` pick between three of them here on the same principle.  High is
+   the original's fastest setting, low is half of it, and mid - the default -
+   is the average of the two.  (The original's middle setting was 2/3, not
+   3/4, if you ever want to match it exactly.) */
+const BASE_TICK_MS = 2000 / 60.15;         /* HI: 60.15/2 ticks per second */
+const SPEEDS = [{ name: "low", rate: 0.5 },
+                { name: "mid", rate: 0.75 },
+                { name: "high",  rate: 1 }];
+let speedIndex = 1;                        /* MID */
+let TICK_MS = BASE_TICK_MS / SPEEDS[speedIndex].rate;
+
+/* Shooting is the one place this deliberately departs from the original, which
+   took 24 ticks and - worse - re-validated the shot every tick and abandoned
+   it if a guard stepped into the debris tile.  That is what made firing with
+   apparently plenty of time still get you killed.  Here the hole is real from
+   the instant the shot goes off and the dig is half as long, so firing is a
+   reliable defence.  Both changes only ever make the game easier, so a level
+   that was solvable on the original still is.  See FINDINGS.md section 14. */
+const DIG_TICKS   = 12;   // runner frozen this long while shooting
+const HOLE_TICKS  = 180;  // how long a hole stays fully open, after the dig
+const HOLE_WARN   = 20;   // refill art plays over the final N ticks
+const SHAKE_MOVES = 38;   // guard's hole countdown - in guard MOVES, not ticks
+const SHAKE_WOBBLE = 12;  // ... at or below this it wobbles in place
+const SHAKE_CLIMB  = 6;   // ... at or below this it climbs out
+const BORN_TICKS  = 20;   // materialising, counted every tick
 const DIE_TICKS   = 30;   // death animation, then the level reloads
 
-/* Lethal range, in logical units, against a tile of 40 x 44.  A sprite fills
-   its whole tile, so requiring |dx| < DEATH_X and |dy| < DEATH_Y means the two
-   sprites must overlap by roughly two thirds before contact counts.  This is
-   the single source of truth for lethality: tile-entry no longer kills on its
-   own, because a guard crossing a tile boundary is still 16 units (0.4 of a
-   tile) away and killing there reads as dying at a distance.
-   No tunnelling: the fastest closing speed is 16/tick across and 18/tick
-   vertically, both well inside the 24 and 28 unit windows below. */
-const DEATH_X = 12, DEATH_Y = 14;
+/* Horizontal offsets the original walks a trapped guard through while it
+   wobbles, indexed by (shakeLeft - SHAKE_CLIMB - 1).  Straight out of the
+   6-byte table at CODE 1 + 0x1eb0 - there it reads 2,1,2,3,2,1 against a
+   centre of 2, which is these signed offsets times our 8 units per step. */
+const WOBBLE = [0, -8, 0, 8, 0, -8];
 
 /* Tiles */
 const EMPTY=0, BRICK=1, STEEL=2, LADDER=3, ROPE=4, TRAP=5, HLADDER=6,
@@ -887,7 +975,7 @@ function buildAtlas() {
   SP.g_born2_L = mirrored(SP.g_born2);
 
   /* the blaster with the muzzle flash suppressed, so it can pulse while
-     firing instead of sitting there lit for all 11 ticks */
+     firing instead of sitting there lit for the whole dig */
   const dimShoot = ART.shoot.map(function (row) { return row.replace(/5/g, "."); });
   SP.r_shootDim = gridToCanvas(dimShoot, PAL_RUNNER);
   SP.r_shootDim_L = mirrored(SP.r_shootDim);
@@ -900,9 +988,21 @@ function buildAtlas() {
 }
 
 /* ========================================================================
-   Level data.  86 levels, decoded from jims-levels.bin (Apple II style
-   nibble-packed level disk: 224 bytes per level, 448 nibbles = 28x16 tiles
-   row-major, low nibble = left tile, high nibble = right tile).
+   Level data.  The levels are not in this file: they are fetched from the
+   JSON file named by ?levels=URL, default levels.json, absolute or relative.
+
+       {"title": "Jim's Levels",
+        "win":   "the sentence the win overlay ends with",
+        "levels": [
+           {"board": "
+       ............................
+              ... 16 rows of exactly 28 characters ...
+       ............................
+       "},
+           {"board": "
+       ...
+       "}
+       ]}
 
        .  empty          X  trap (false brick, drawn as #)
        #  brick          S  hidden ladder (appears when all gold is taken)
@@ -910,1474 +1010,104 @@ function buildAtlas() {
        H  ladder         G  guard
        -  rope           P  player
 
-   Two cells in level 16 held nibble values 13 and 14, which are not valid
-   tile types; both were isolated cells in open space and are mapped to
-   empty.  Every other level re-encodes byte-identically to the original.
+   A board is written as 16 real lines because that is the only way to see it,
+   which costs one relaxation of JSON (escapeControlsInStrings) and one
+   flattening step (flattenBoard) - the engine below still reads one
+   448-character string per level and does not know the difference.
+
+   `title` becomes the document title, and `win` and the level count fill the
+   win overlay, so nothing in this file names any particular set.
+
+   Both bundled sets were decoded from the nibble-packed original level files
+   in original-files/ (Apple II style level disk: a 262-byte header, then 224
+   bytes per level, 448 nibbles = 28x16 tiles row-major, low nibble = left
+   tile, high nibble = right tile; the first all-zero level ends the set,
+   which is how one file holds 86 and the other 30).  Two cells in Jim's level
+   16 held nibble values 13 and 14, which are not valid tile types; both were
+   isolated cells in open space and are mapped to empty.  Every other level
+   re-encodes byte-identically to the original.
    ======================================================================== */
-const LEVELS = [
-/*   1 */
-  "...........P................" +
-  ".....##....S...############." +
-  "....#G.##.SSS..#$$$$$$$$$H#." +
-  "....#G$$$SSSSS.##########H#." +
-  "....#H###.SSS...........#H#." +
-  "....#H#....S............#H#." +
-  "....#H#...###########...#H#." +
-  "....#H#..#$$$$$$$$$$$#.#$H#." +
-  "....#H###########H#####.$H#." +
-  "....#H$$$$$$$$$$$H$$$$$$$H#." +
-  "....#H#####H#####H#####HHH.." +
-  "....#H#...#H#...#H#...#H#H.." +
-  "...##H#..##H#..##H#..##H#H.." +
-  "..#$$H#.#$$H#.#$$H#.#$$H#H.." +
-  "..#####.#####.#####.#####H.." +
-  ".........................H..",
-/*   2 */
-  ".......................S...." +
-  "....$$.....G...........S.$.P" +
-  "#######H###X###HHHHHHHHH====" +
-  "HHHHH.HH....HHHH......HH...H" +
-  "HH...X.H......$H......HHH.HH" +
-  "HH$..X#########H$$.....HHHHH" +
-  "H####X.........###$.$..HHHHH" +
-  "HH...$............###$.$.HHH" +
-  "HH...$......#$$#.....###$HHH" +
-  "H.....$....######........H.H" +
-  "H..##X###..##XX##.......$H.H" +
-  "H...........#XX#.........H.H" +
-  "H....$..................$H.H" +
-  "H####X#####################H" +
-  "H$$$#X$$$$$$$$$$$$$$$$$$$$$H" +
-  "############################",
-/*   3 */
-  "S..........................S" +
-  "S..........................S" +
-  "S--------------------------S" +
-  "H............P#G...........H" +
-  "H..........$##.##$.........H" +
-  "H.........$#.....#$........H" +
-  "H........$#$.---.$#$.......H" +
-  "H.......$#.###.###.#$......H" +
-  "H......$#...........#$.....H" +
-  "H.....$#.............#$....H" +
-  "H....$#...............#$...H" +
-  "H...$#..#$.$.$.$.$.#...#$..H" +
-  "H..$#...############....#$.H" +
-  "H..#.....................#.H" +
-  "H$$..$$.......$.....$$....$H" +
-  "############################",
-/*   4 */
-  "...-----..$.$..............S" +
-  ".$GH...H#######H...........S" +
-  "=#=H...H.......H......-----S" +
-  "...H...H...$...H...H##.....#" +
-  "#=####X############H........" +
-  ".....$.------..$..GH........" +
-  "..H####......######H........" +
-  "..H................H#######H" +
-  "..H................H.......H" +
-  "..H....$.....$.....H.......H" +
-  "..H#################.......H" +
-  "..H......----------..$.....H" +
-  "..H...H##..........###H....H" +
-  "..H...H...............H....H" +
-  "..H...H....$..P.......H....H" +
-  "############################",
-/*   5 */
-  "S..........................S" +
-  "S..$..........$P........$..S" +
-  "H##########################H" +
-  "H.......$...........$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "H##########################H" +
-  "H.G.....$...........$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "H##########################H" +
-  "H.......$........G..$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "############################" +
-  "############################",
-/*   6 */
-  "...........................S" +
-  ".$......$.....$.....G...---S" +
-  "H##H##H##H##H##H##H##H##H..H" +
-  "H..H..H..H..H..H..H..H..H..H" +
-  "H..H$.H..H$$H..H.$H..H$.H..H" +
-  "H###########H############..H" +
-  "H.G.........H..............H" +
-  "#####X#####################H" +
-  "#$.##.$...$..$..$..$..$.$.#H" +
-  "#########################X#H" +
-  "........-------------------H" +
-  "....$.H#....$.$..$.........H" +
-  "..H#####..H####H####H......H" +
-  "..H.......H....H....H......H" +
-  "..H.......H....H.P..H......H" +
-  "############################",
-/*   7 */
-  "S....................$G#...." +
-  "S...............########...." +
-  "H------------..............." +
-  "H..$....................$.$." +
-  "H####H..............#######H" +
-  "H####H.....................H" +
-  "H$.P#H......$..............H" +
-  "H####H.....................H" +
-  "H####H........$.......$....H" +
-  "H######H########H###########" +
-  "H.....HH........H..........." +
-  "H....HHH........H..........." +
-  "H...HHH.........H..........." +
-  "H...HH..........H..........." +
-  "H...H.......G...H..........." +
-  "############################",
-/*   8 */
-  ".........S.................." +
-  ".G.H---H.S........H----H...." +
-  "HHHH.$.H.S........H.$..H...." +
-  "HHHH...H.S........H....H...P" +
-  "H########H###H#####H######HH" +
-  "H#$------H---H-----H-------H" +
-  "H#H......H...H.....H.......H" +
-  "H#H......H...H.....$.......H" +
-  "HGH......H...H.............H" +
-  "H###H######################H" +
-  "H...H......................H" +
-  "H...H------------------$---H" +
-  "H...H..............$...H...H" +
-  "H...H....$.............H...H" +
-  "H...H..................H...H" +
-  "############################",
-/*   9 */
-  "#S##########################" +
-  "#S..............H..........." +
-  "#H----$$$$$$----H-------####" +
-  "#H..$########$..H......----$" +
-  "#H.##........##.H.....$....#" +
-  ".H..............H..........." +
-  "HH..............H..........." +
-  "H........G...$..H..........." +
-  "H####################H#H##HX" +
-  "HHHHHHHH-------------H#H##H#" +
-  ".H.....H.............H.H..H." +
-  ".H..$..H....$...$..P.H.H$$H." +
-  "XH#####H#############H####HX" +
-  ".H.....H.............H....H." +
-  ".H.....H..$..........H....H." +
-  "############################",
-/*  10 */
-  "............S.S............." +
-  "$......$....SPS....$.......$" +
-  "H######H#####H#####H#######H" +
-  "H......H.....S.....H.......H" +
-  "H--.G..H.....S.....H....---H" +
-  "H.###########H############.H" +
-  "H---...$.....H.....$...----H" +
-  "H..####H###########H#####..H" +
-  "H----..H.....$....GH..-----H" +
-  "H...#########H##########...H" +
-  "H-----.$..G..H.....$.------H" +
-  "H....##H###########H###....H" +
-  "H------H.....$.....H-------H" +
-  "H.....#######H########.....H" +
-  "H............H.............H" +
-  "############################",
-/*  11 */
-  "#P#...#...$...$....######S##" +
-  "#.#####H##########H...$.#S#$" +
-  "#..$H.$H#H.$..$.H########S#H" +
-  "#H##H#HH#H######H#H.$..H#S#H" +
-  "$H$#H#HH#H#.$GH#H#H####H#S#H" +
-  "####H####H####H#H#H#H.#H#S#H" +
-  "#...H$H##H$.H#H#H#H#H.#H#S#H" +
-  "#.####H#.H##H#H#H#H#H.#H#S#H" +
-  "#....#H#.H##H#H#H#H#H.#H#S#H" +
-  "#..G.#H#$H##H#H#H#H#H.#H#S#H" +
-  "######H##H##H#H#H#H#H.#H$S$H" +
-  ".#H$..H$#H##H#H#H#H#H.######" +
-  ".#H######H##H#H#H.H#H......#" +
-  ".#H..$$..H##H#H#####H#H###.#" +
-  ".########H##H$H..$..H#H#H#H#" +
-  ".........H$#############HGHG",
-/*  12 */
-  ".--P.$----------.G..-------S" +
-  "H.$###....H....$####$......H" +
-  "H.####....H...$##..##$.....H" +
-  "H...##....H..$##....##.....H" +
-  "H...##....H..##.....##.....H" +
-  "H...##....H.........##.....H" +
-  "H...##....H........$##.....H" +
-  "H...##....H.......$##......H" +
-  "H...##....H......$##.......H" +
-  "H...##....H.....$##........H" +
-  "H...##....H....$##G........H" +
-  "H...##....H...$##.$........H" +
-  "H...##....H..$##...........H" +
-  "H$$$##$$$.H.$##.......--...H" +
-  "H########HH$######X###$H...H" +
-  "H########HH#######X####H###H",
-/*  13 */
-  "........H----H.............." +
-  "-------H..PG..H-----.$.$.$.." +
-  "H......H#$..$#H.....######HH" +
-  "H..####H.#$$#.H####.#....#HH" +
-  "H..#.$#H......H#$.#.#....#HH" +
-  "H..####H......H####.#.$$G#HH" +
-  "H......H.#$$#.H.....######HH" +
-  "H.....-H------H-.....H.....H" +
-  "H....$...$..$...$....H.....H" +
-  "H.$################$.H.....H" +
-  "H$#...$$..$$..$$...#$H.....H" +
-  "H#.################.#H.....H" +
-  "HS.....S.SSS.S.....S.H.....H" +
-  "H.S.S.S..S.S..S.S.S..H.....H" +
-  "H..S.S...SSS...S.S...H.....H" +
-  "############################",
-/*  14 */
-  "....S...................S..." +
-  "....S......$.-----------S.G." +
-  "....S....H#####H........H###" +
-  ".$..S.G..H..$..H...$....H.$." +
-  "####H###################H###" +
-  ".$..H.....$........$....H.$." +
-  "####H###################H###" +
-  ".$..H.$........$........H.$." +
-  "####H###################H###" +
-  ".$..H....G.......G......H.$." +
-  "####H..H############H...H###" +
-  "....H..H############H...H..." +
-  "....H..H####$.######H...H..." +
-  "....H..H############H...H..." +
-  "....H..H....$..P....H...H..." +
-  "############################",
-/*  15 */
-  "H..........................P" +
-  "H......$....$.$......$......" +
-  "HX##################H#H.$.$." +
-  "H...$.....G.........H.H#####" +
-  "HX######H#H...$..$..H.H$...." +
-  "S.......H############H#H####" +
-  "S..$....H............H.H...$" +
-  "S......$H............H.####H" +
-  "H#######H$G.$.$.$....H.$...H" +
-  "H......######=#=#====H.####H" +
-  "H---H.$.$.$..........H.$...H" +
-  "H.$.H=#=#=#H.........H.H####" +
-  "H###H$.$.$.H...H-----H.H...$" +
-  "H...H#=#=#=H...H.$$..H.H####" +
-  "H...H......H...HG....H.H...$" +
-  "############################",
-/*  16 */
-  "...S........................" +
-  "...S-------------..........." +
-  "...H..$.G.$..$...----......." +
-  "...H.###H#######.....---...." +
-  "...H....H...............--.." +
-  "...H....H.................-$" +
-  "...H.......................#" +
-  "...H........................" +
-  "...H......$.....$...$......." +
-  "...H#######################H" +
-  "...H...................H.H.H" +
-  "###S###.....$.$.$.$.$.$HHHHH" +
-  "#..S..#...HS#=#=#=#=#=#H.H.H" +
-  "#..S..#...H............===.H" +
-  "#GGSGG#...H$....$...P..$...H" +
-  "############################",
-/*  17 */
-  "..GG....####S##S####........" +
-  "..XXX..#$G$SS$$SS$.$#.GP...." +
-  ".XXXXX.#H$H$.HH.$H$H#......." +
-  "..XXX...#HH##HH##HH#........" +
-  ".........#H#HHHH#H#........." +
-  "..........##H##H##...XXX...." +
-  "...........#HHHH#...XXXXX..." +
-  "............#HH#.....XXX...." +
-  "............#HH#............" +
-  "............#HH#............" +
-  "............HHHH............" +
-  "...........S#HH#S..........." +
-  "...........S#HH#S..........." +
-  "...........S#HH#S..........." +
-  "############HHHH############" +
-  "#########HHHH##HHHH#########",
-/*  18 */
-  "....G........SPS........G..." +
-  "####S###S....S.S....S###S###" +
-  "....S...S....S.S....S...S..." +
-  "....S....H...S.S...H....S..." +
-  "....S....H...S$S...H....S..." +
-  "H#########H#######H########H" +
-  "H---------H.......H--------H" +
-  "H..........H.....H.........H" +
-  "H...$.$....H.....H...$.$...H" +
-  "H###########H...H##########H" +
-  "H...........H...H..........H" +
-  "H............H.H...........H" +
-  "H....$.....$.HGH.$....$....H" +
-  "H#############H############H" +
-  "H..........$..H..$.........H" +
-  "############################",
-/*  19 */
-  ".........................S.." +
-  "-------.$.$.$.$.$........S.." +
-  "H.....$##H=#=#=#=H.......S.." +
-  "H...$##..H.......H.......S.." +
-  "H..##....H.......H.......S.." +
-  "H..G.....H...$...H.......S.G" +
-  "######H#############H####H#X" +
-  "......H.............H....H.." +
-  "......H.............H....H.." +
-  "......H..................HXH" +
-  "..$...H------------------H.H" +
-  "H#####H.......P..........H.H" +
-  "H.....H.....H############H.H" +
-  "H.....H.....H............H.H" +
-  "H.$...H$....H...$........H$H" +
-  "############################",
-/*  20 */
-  "S..........S...............S" +
-  "S..........S...............S" +
-  "H------..G.S.G...--........H" +
-  "H.....H##########H.###HH###H" +
-  "H.....H##..##..##H.#$#HH#$#H" +
-  "H.....H#.#.$$.#.#H.###HH###H" +
-  "H.....H#..####..#H.........H" +
-  "H.....H##.#$$#.##H....##...H" +
-  "H.$.$.H##.#$$#.##H...#$$#..H" +
-  "H####.H#..####..#H...####..H" +
-  "H.....H#.#....#.#H.#$.$$.$#H" +
-  "H.....H##$$##$$##H.########H" +
-  "H.....H##########H..#$$$$#.H" +
-  "H.....H..........H...####..H" +
-  "H.....H....P.$...H.........H" +
-  "############################",
-/*  21 */
-  "............H...P...S...H..." +
-  "............H...#...S...HG.." +
-  "............H...#...S.S###S." +
-  "......$.$...S.#####.S.S...S." +
-  "...H######H###.$#$.#H.S...S." +
-  "...H......H..#######H.S.$.S." +
-  "...H......H..#H...H#H.H###H." +
-  "...H......H..#H.#.H#H.H$.$H." +
-  "...H......H..#H$#$H#H.H###H." +
-  "###H###...H..HH###HHH.H.$.H." +
-  "#..S..#...H.#H#...#H##H###H." +
-  "#..S..#...H.#H$...$H#.H$.$H." +
-  "#..S..#...H.#H#.$.#H#.H###H." +
-  "#..S..#...H.#H.###.H#.H...H." +
-  "#GGSGG#...H.#H..$..H#$H.$.H." +
-  "############################",
-/*  22 */
-  "............S..............S" +
-  "------------S$.............S" +
-  "H...........H##H...........S" +
-  "HP...$..$...H.$H....$.$....S" +
-  "H###########S##$###########H" +
-  "H---H.......S..............H" +
-  "H#..H.......S..............H" +
-  "X#..H...$.G.S$......$G..$..H" +
-  "----H#######H#H######X#####H" +
-  "....H.......H#H.......-----H" +
-  "$...H.......H#H............H" +
-  "--G$H....$..H#H............H" +
-  "XH##H#######H#H....$..$....H" +
-  ".H..H.......H#H............H" +
-  ".H..H.......H#H............H" +
-  "############################",
-/*  23 */
-  "S...........G..............S" +
-  "S.......SSSS.SSSS.S........S" +
-  "S.......S....S..S.S........S" +
-  "S.......S.SS.S..S.S........S" +
-  "S.......S..S.S..S..........S" +
-  "S.$.$.$.SSSS$SSSS.S.$.$.$.$S" +
-  "H##########################H" +
-  "H........$.$.$.$.$.........H" +
-  "H$.$.$.$H#########H$.$.$.$.H" +
-  "H########....G....#########H" +
-  "H#$$$$$$#.$.$.$.$.#$$$$$$$#H" +
-  "H########H#######H#########H" +
-  "H.$.$.$.$H#$.$.$#H$.$.$.$.$H" +
-  "H##########H###H###########H" +
-  "HP.$.$.$.$.H###H.$.$.$.$.$.H" +
-  "############################",
-/*  24 */
-  "GS........................S#" +
-  "#S---------------------P--S#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$##XH#" +
-  "#H$#####################.$H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$.$H#" +
-  "#H$#####################.$H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$.$H#" +
-  "#H$#####################.$H#" +
-  "#H----$$$$$$$$------------H#" +
-  "#H.$..########..$$$$$$$$..H#" +
-  "#H.$............########..H#" +
-  "#H.$..#####S##............H#" +
-  "#H.$..#....S.#...$$$$$$...H#" +
-  "#H.$..#....S.#..S######S..H#" +
-  "#H....#GGGGS.#..S......S..H#" +
-  "############################",
-/*  25 */
-  "##################H#########" +
-  "#--.....$...$...H#H#H---H.$#" +
-  "#.#H############H#H#H#$.H###" +
-  "#.#H#H.$...$....H#H#H###H..#" +
-  "#.#H#H##########H#H#H.$#H$##" +
-  "#.#H#H#--.$...H#H#H#####H###" +
-  "###H#H#.######H#H#SGH$$$H$H#" +
-  "P.$H#H#.#H.$H#H#H###H#####H#" +
-  "#####H#.#H##H#H#H#$#H#$#H#H#" +
-  "#$---H###H.#H#H#H#H#H#$#H#H#" +
-  "###S#H#H.H$#H#H#H#H#H#$#H#H#" +
-  "#..S#H#H####H#H#H#H#H#$#H#H#" +
-  "#..S#H#H#$$.H#H#H#H.H.$.H#H#" +
-  "#GGS#H#H######H#H#########H#" +
-  "#GGS#H$H..$$..H#H...$.$...H#" +
-  "############################",
-/*  26 */
-  "###############S############" +
-  "#$$$$$$$$######S#$$$$$$$$$##" +
-  "#H######H#$$$$$S#H#####H#H##" +
-  "#H#GG.$#H#H####S#H#$$$#H#H##" +
-  "#H#G.#H#H#H$$$#S#H#H#H#H#H##" +
-  "#H#..#H#H####H#S#H#H#H#H#H##" +
-  "#H#..#H#H#$$$H#S#H#H#H#H#H##" +
-  "#H#..#H#H#H####S#H#H#H#H#H##" +
-  "#H#..#H#H#H$$$$S#H#H#H#H#H##" +
-  "#H#..#H#H######H#H#H#H#H#H##" +
-  "#H#..#H$H$$$$$$H#H#H#H#H#H##" +
-  "#H###############H#H#H#H#H##" +
-  "#H$$$$$$$$$$G$$$$H$H#H$H#H##" +
-  "#########################H##" +
-  "#P$$$$$$$$$$$$$$$$$$$$$$$H##" +
-  "############################",
-/*  27 */
-  "S................P.........S" +
-  "S...............---........S" +
-  "H#######H########X#########H" +
-  "H-------H------------------H" +
-  "H.G.$$..H..$.$...$..$.$$..$H" +
-  "H#XH####H##########H##X####H" +
-  "H--H----H----H-----H--$.$.$H" +
-  "H..H....H....H.....H..#####H" +
-  "H.$H..$.H.G..H$..$.H$.#..$.H" +
-  "H#########X########H#H#S####" +
-  "H--H---------------H-H#S...#" +
-  "H$.H..$.$....$.....H###S...#" +
-  "H..H######H########X###S...#" +
-  "H--H------H------H----#S..G#" +
-  "H$.H.$....H$.$...H.$$.#S.GG#" +
-  "############################",
-/*  28 */
-  "............S..............." +
-  "............S..............." +
-  "..$...$-----S-------.P$.$..." +
-  "H######H..#$H$#....H#######H" +
-  "H......H..##H##....H.......H" +
-  "H$$..$.H..$.H...$$.H.$..$..H" +
-  "H######H###########H#######H" +
-  "H......H...........H.......H" +
-  "H......H...........H.......H" +
-  "H..G...H..$$.....$.H.......H" +
-  "H############H#############H" +
-  "H------------H-------------H" +
-  "H......$..$..H...$...H.....H" +
-  "H##H#########H#######H#####H" +
-  "H..H.....$...H.$..$..H.$...H" +
-  "############################",
-/*  29 */
-  "=S...........G............S=" +
-  "=S------------------------S=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H........................H=" +
-  "=H------------------------H=" +
-  "=H$$$$$$$$$$$P$$$$$$$$$$$$H=" +
-  "=H#####=====H####H====####H=" +
-  "=H..........H....H........H=" +
-  "=H$$$$$$$$$$H$.$$H$$$$$$$$H=" +
-  "=#############X############=" +
-  "=GG...........X..........GG=",
-/*  30 */
-  ".....S................S....." +
-  ".....S................S$.G.." +
-  ".....SP....$..........H###H." +
-  ".####H#..###H.........H...H." +
-  ".....H#.$#..H-----$...H...H." +
-  ".....H####..H.H..===H######." +
-  "$....H......H$H.....H$...$.." +
-  "##H#####H####X######H#####S." +
-  "..H.....H...........H.....S." +
-  "..H.....H...........H.....S." +
-  "..H....$H.-------...H.$...S." +
-  "######H###H..$..####H####.S#" +
-  "......H...H$.G......H...#GS#" +
-  "......H...###H......H...####" +
-  "......H$.....H......H.$....." +
-  "############################",
-/*  31 */
-  ".S...................S..P..." +
-  ".S...................S......" +
-  ".SG.$..$.$..$.$..$...S......" +
-  ".H#######H###=#==#===H......" +
-  ".H.......H...........H......" +
-  ".H......$H...$.$....$H$..$$." +
-  "########H#########H###H#X#H." +
-  "...$.$..H......$..H...H...H." +
-  "..H##H..H......H###...H.$.H." +
-  "$.H.$H.GH-.....H......H...H." +
-  "###X#H###.-....H......H#####" +
-  ".....H.....-$..H.$.$..H....." +
-  ".....H......#####H#####....." +
-  ".....H...........H.........." +
-  "..$..H........G$.H........$." +
-  "############################",
-/*  32 */
-  "###H########################" +
-  "#$$H##H$H#H$H#H#$H$$$$$$$$.#" +
-  "#H#H##H#H$H#H$H##H#####H#H$#" +
-  "#H#H#X########H$$H#H$H#H#H$#" +
-  "#H#H$$$$$$$$$#H##H#H#H#H#H$#" +
-  "#H#H########H#H$#H#H#H#H#H$#" +
-  "#H#H#G#H$$H#H#H$#H###H#H####" +
-  "#H#H#H#H$$H#H#H$#H$$$H#H$$$#" +
-  "#H#H#H#H##H#H#H########H####" +
-  "#H#H#H#H##H#H#H#$$$$$$$H--H#" +
-  "#H#H#H$H##H#H#H#H######H#$H#" +
-  "#H#H######H#H###$#$$$.#H#$H#" +
-  "#H#H$$$$$$H#H$$$H#H#H$#H#$H#" +
-  "#H################H####H#$H#" +
-  "##$$$$$$$$$$$$$$$$H$$$$H#PH#" +
-  "############################",
-/*  33 */
-  "H$$$$$$$$$$..P..$$$$$$$$$$$H" +
-  "H==========================H" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H##########################H" +
-  "H..........................H" +
-  "H...........SS.............H" +
-  "H.........$#SS#$...........H" +
-  "H........$#.SS.#$..........H" +
-  "H.......$#..SS..#$.........H" +
-  "H.......#.SSSSSS.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "HG......#.SGGG.S.#........GH" +
-  "H##########################H" +
-  "H#$######################$#H",
-/*  34 */
-  "P..........................." +
-  "XHHHHHHHHHHHHHHHHHHHHHHHHHHX" +
-  "$H........................H$" +
-  "XH..........GGG...........HX" +
-  "$H...##################...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H...#$$$$$$$$$$$$$$$$#...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H...#$$$$$$$$$$$$$$$$#...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H---$$$$$$$$-$$$$$$$$$---H$" +
-  "XH$$#########$##########..HX" +
-  "$H###$$$$$$$###$$$$$$$$###H$" +
-  "XH------------------------HX" +
-  ".H........................H." +
-  "############################",
-/*  35 */
-  "---------------------------H" +
-  "H.H$HH.HHH..$.$....H.HH....H" +
-  "H.$HH...H...H.H...$....$$..H" +
-  "H.H...$...$$$$..$.H..$.HH..H" +
-  "H.H...H...HHHH..H....H..H$.H" +
-  "H$...$..$..$..$$$.$..H..$H.H" +
-  "HH...H..H..H$.HHH.H..H..H..H" +
-  "HH.$..$$$...H..H..H.$H.....H" +
-  "H$.H..HHH.$....H....H...$..H" +
-  "HH..$$.$.$H....$.$.....$H..H" +
-  "HH$.HH.H.H$.$$.H$H....$HH..H" +
-  "HHH.$$..$.H.HH$.H...$$H....H" +
-  "H...HH$.H....HH$H..$HHH....H" +
-  "H.....H........H...HH......H" +
-  "HG...........G............PH" +
-  "#############X##############",
-/*  36 */
-  "#----SSSSSSSSPSSSSSSSSS----#" +
-  "#...HHHHHHHHHHHHHHHHHHHH..H#" +
-  "#H..H$$$$$$$$$$$$$$$$$$H.H.#" +
-  "#.H.H$$$$$$$$$$$$$$$$$$HH..#" +
-  "#..HH$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H........G.........H...#" +
-  "#...H##################H...#" +
-  "#...H------------------H...#" +
-  "#...H......SSSSSS......H...#" +
-  "#...H.....$S....S$.....H...#" +
-  "#...H....$#S....S#$....H...#" +
-  "#...H...$#.S....S.#$...H...#" +
-  "#...H$$$#..S....S..#$$$H...#" +
-  "#########..S.GG.S..#########",
-/*  37 */
-  "=..........................=" +
-  "=H........................H=" +
-  "=H.....H-----------H......H=" +
-  "=H.....H...........H......H=" +
-  "=H.....H=.........=H......H=" +
-  "=H$$$$$H=$$$$P$$$$=H$$$$$$H=" +
-  "=H===========#============H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H........................H=" +
-  "=H$$$$$...........$$$$$$$$H=" +
-  "=H#####$$.$$G$$.$$########H=" +
-  "=H.....$H#######H$........H=" +
-  "=H.....$H-------H$........H=" +
-  "=H$$$$$$HSSSSSSSH$$$$$$$$$H=" +
-  "=#=#=#=#=XXXXXXX=#=#=#=#=#==",
-/*  38 */
-  "H..........................." +
-  "H.........P--------$----...." +
-  "H.G.S.S.S.H.S.S.S..#$..G#..." +
-  "###S.S.S.S.S.S.S.S.######..." +
-  "................S..#$####..." +
-  ".................S.###H##..." +
-  "................S..###H##..." +
-  ".....$..$...$....S.S.S.S.S.S" +
-  "##H#######H###H...S.S.S.S.S." +
-  "..H.......H#$#H............S" +
-  "$$H$$.....H###H########...S." +
-  "==H==$$$--H...H#$$$$#$#....S" +
-  "=GS.=###H.H...H######X#...S." +
-  "=GS.=..#H.H...H######X#....S" +
-  "=GS.=$.#H$H$.$H######X#####H" +
-  "=====################X$$$$$H",
-/*  39 */
-  "........S..................." +
-  ".....$..S..$..$..---........" +
-  "..$H##H.H########H.........." +
-  ".H##..H.H........H........$." +
-  "H#....H$H...$....H.X$.....#H" +
-  "H....=#=H=#=H....H..#...$#.H" +
-  "HH...#..S..#H....H...####..H" +
-  "$H...=..S..=H....H.........H" +
-  "$H...#GGSGG#H..G.S...------H" +
-  "H####=#=#=#=#####H#$#$.H...H" +
-  "H................H###H.H.$.H" +
-  "H#...#H--........H---H.####H" +
-  "H#.$.#H..-----..$H...H.....H" +
-  "H#####H#$....####H...H.....H" +
-  "H.....H....P.....H...H.....H" +
-  "############################",
-/*  40 */
-  ".........SSS.....SSSS......." +
-  "---------SSS-----SSSS-------" +
-  "H.......$###.....####......H" +
-  "H......$####....######.....H" +
-  "H.....$##.##...##$$$$##....H" +
-  "H....$##..##.G.##$##$##G...H" +
-  "H...$##$$$##$..##$##$##....H" +
-  "H..$#########$.##$##$##....H" +
-  "H..###########.##$##$##....H" +
-  "H.........##...##$##$##G...H" +
-  "H.........##...##$##$##....H" +
-  "H.........##...##$$$$##....H" +
-  "H.......P.##....######.....H" +
-  "H.........##.....####......H" +
-  "H..........................H" +
-  "############################",
-/*  41 */
-  ".......S..............S....." +
-  ".......S..............S$...." +
-  "......HS------.G.H#$..H##..." +
-  "...$$.HS.$.$$....H.$..H....." +
-  "---###X##H###----H...$H....." +
-  "$..$.....H...##X#H.###X#...." +
-  "####.G...H.......H.S....$$.." +
-  ".$$$..$.$H...$$.H##S........" +
-  "....H####H##X###HH#S....--.." +
-  ".---H....H.....##H#S----$.P$" +
-  "$$$$H....H.G.....H#S-####===" +
-  "#X##H.$.$H...$$$.H.S........" +
-  "....H=====##H####H###H......" +
-  "....H.......H....H...H......" +
-  "....H..$....H.$..H.$$H.$...." +
-  "############################",
-/*  42 */
-  "...........................H" +
-  "...........................H" +
-  "...$H....$....$.......$..$.H" +
-  "XXX##########H##$....H####XH" +
-  "GGG..$.......H..#$..$H.....S" +
-  "SSS====H.....H...####H.....S" +
-  "====...H.....H.......H.....S" +
-  ".......H..$..H-------H.$..$S" +
-  ".......H######H..$...H#=#HXS" +
-  "...H---H......H......H...H.S" +
-  "...H.$.H....$.H...$..H..$H.S" +
-  "...H...H....H#H######H.$#..S" +
-  "$..H.$.H..$.H#H.$..$.H$#...S" +
-  "H#######H###H#H###########XH" +
-  "H.......H...H#H............H" +
-  "#H.$....H..$H#H......$...P.H",
-/*  43 */
-  "#GGG$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#P$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "############################",
-/*  44 */
-  ".......H...................." +
-  ".......H...................." +
-  ".......S.......----------H.." +
-  ".......S------H.$......H#H.." +
-  "$...$..S.....$H....P.$$H.H.." +
-  "#H############H####H#####H.." +
-  ".H---------........H-----H.." +
-  ".H...$.$G.---------H.....H.." +
-  ".H########H...$...$#$G$.$H.." +
-  "$H........H..$...$H###H###.." +
-  "$H----H...H...$.$#H...H....." +
-  ".H..$GH...H....$#.H...H....." +
-  "######H...H...$#..H...H....." +
-  "......H...H..$#...H...H....." +
-  "......H...H.$#....H.$.H.$..." +
-  "=#=#=#=#=#=#=#=#=#=#=#=#=#=#",
-/*  45 */
-  "H----------$###$-----------H" +
-  "H---------$##G##......G....H" +
-  "H.........H####$--.........H" +
-  "H......P..H$###$$H.........H" +
-  "H..$......H$##.$#H..$......H" +
-  "H........$####$##H$........H" +
-  "H.......$##$##X#HHH.....$..H" +
-  "H......H##.$##$...H........H" +
-  "H.G....H...$##$...H........H" +
-  "H....$.H...$##$$$.H........H" +
-  "H......H...$#####$H........H" +
-  "H......H.$$##H--#$H....$...H" +
-  "H......HH###.H$$#$H........H" +
-  "H......H$#$.$H$$##H........H" +
-  "H......H.....H....H........H" +
-  "H##########################H",
-/*  46 */
-  ".S..........G......S........" +
-  ".S....------H......S.$......" +
-  ".H...-H.....H......S$H......" +
-  ".H..-.H.....$......SHH.--$--" +
-  ".H.-..H-....H------SHH-..H.." +
-  ".H-G..H.-..$.......SH$...H.." +
-  ".$....H..-.H-.......H....H.$" +
-  ".....HH...-H--------H----H.." +
-  ".....H$.......H.....$......." +
-  ".H---H-.......H............." +
-  ".H.......----$H....-$..-$--$" +
-  ".H------$...HHH...-.H.-.H..H" +
-  ".H......H...H$H..-..H-..H..H" +
-  ".H...$..H...HHH.-...H...H..H" +
-  ".H......H.....H-....H......H" +
-  ".H...P..H...........H......H",
-/*  47 */
-  ".H.H.H.H.H.H.H.H.H.H.H.H.H.H" +
-  "H##########################H" +
-  "H#S--------H####H--------S#H" +
-  "H#S$.......H....H.......$S#H" +
-  "H#S------..HG$$GH..------S#H" +
-  "H#S$....H##########H....$S#H" +
-  "H#S$....H..........H....$S#H" +
-  "H#S---..H$.$....$.$H..---S#H" +
-  "H#S$.H################H.$S#H" +
-  "H#S$.H................H.$S#H" +
-  "H#S$.H$.$.$.$..$.$.$.$H.$S#H" +
-  "H#H######################H#H" +
-  "H#H......................H#H" +
-  "H#HG$.$.$.$.$.$.$.$.$.$.PH#H" +
-  "H#X######################X#H" +
-  "H.H.H.H.H.H.H.H.H.H.H.H.H.H.",
-/*  48 */
-  "#S########################S#" +
-  "#SG.$.$.$.$.$P$.$.$.$.$.$GS#" +
-  "#S########################S#" +
-  "#S#...$.$.$.$.$.$.$.$.$..#S#" +
-  "#S#.####################.#S#" +
-  "#S#.#...$.$.$.$.$.$.$..#.#S#" +
-  "#S#.#.################.#.#S#" +
-  "#S#.#.#.......G......#.#.#S#" +
-  "#S#.#.#.$.$.$.$.$.$.$#.#.#S#" +
-  "#S#.#.################.#.#S#" +
-  "#S#.#.$.$.$.$.$.$.$.$.$#.#S#" +
-  "#S#.####################.#S#" +
-  "#S#.$.$.$.$.$.$.$.$.$.$.$#S#" +
-  "#S########################S#" +
-  "#S$.$.$.$.$.$.$.$.$.$.$.$.S#" +
-  "############################",
-/*  49 */
-  "HHH....H.....H.P.H...H.....H" +
-  "HHH....H.....H...H...H.....H" +
-  "HHH$--$H$---$H$-$H$$$H$$$$$H" +
-  "HHH#$$#H#$$$#H#$#H###H#####H" +
-  "HHH#$$#H##$$#H#$#H#$$HHH#HHH" +
-  "HHH#$$#H#H#$#H#$#H##$HHH#HHH" +
-  "HHH#$$#H#HH##H#$#H#$$HHH#HHH" +
-  "HHHH##HH#HHH#HH#HH###HHH#HHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH",
-/*  50 */
-  ".....$......................" +
-  "....H#...$#H..$$...$$$$$$..." +
-  "....H#..$#HH..H#...#H###H#$#" +
-  "....H#.$#$H$..H#.#.#H#$#HH#H" +
-  "....HH$#.H##H.H#.#.#H###H$#H" +
-  ".....H#..#..#HH##.##H#$#H.#H" +
-  ".....#.....#.H......H...H..H" +
-  ".....#....#..H......H...H..H" +
-  ".........#...HP$$$$$H$$$H$$H" +
-  "GG$$$$$$$####H#HH##HHH##HHHH" +
-  "H###HH##H$...H#H#$$#H#$$#H.." +
-  "H$#$H#$$#H...H#H#$$#H#$$#H.." +
-  "H$#$H#$$#H...H#H#$$#H#$$#H.." +
-  "H$#$H.##.H...H#H.##.H.##.H.." +
-  "H$.$H....H...H.H....H....H.." +
-  "############################",
-/*  51 */
-  "####H#######################" +
-  "#..#H#....$$$=$$$=$$$=$..=$#" +
-  "#$$$H#$###H#H$H#H$H#H$H#$$H#" +
-  "####H#####H#####H#######===#" +
-  "#SSSH$$$$$H$$$$$H$$$$$$$$$$#" +
-  "#SG#######################H#" +
-  "#SG#$$$$$$$$$$$$$$$$$$$$$#H#" +
-  "#SG#H###################H#H#" +
-  "#SG#H#$$$#$$$$$$$$$$$#$#H#H#" +
-  "####H###H#H#########H#H#H#H#" +
-  "#$$$H$$$H#H#$#$$$$$$H#H#H#H#" +
-  "#H##H#####H#H#H#######H#H#H#" +
-  "#H$#H$$$$$H#H#H$$$$$$$H#HGH#" +
-  "#H$#########H#H#############" +
-  "#H$$$$$$$$$$H#H$$$$$$$$$$$.#" +
-  "#########################HP#",
-/*  52 */
-  "....H......................." +
-  "....H......................." +
-  "....H..$...................." +
-  "....HX###H......$....G......" +
-  "....S....H###############H.." +
-  "....SG.-$H...............H.." +
-  "....HX#X#H#######H------.H.." +
-  "....HG...........H......##.." +
-  "....#H...........H.....X$#.." +
-  "....#X######H....H....X..#.." +
-  "............H#############.." +
-  ".........$..HH---------....." +
-  ".......H#####H...$.....P...." +
-  ".......H....###########H...." +
-  ".......H.$.............H...." +
-  "############################",
-/*  53 */
-  ".GGP.......................H" +
-  "...........................H" +
-  "......SSSSSSSSSSSSSSSSSSSSSH" +
-  "......S...............$...##" +
-  "......S........$########H..." +
-  "......S....$...#........H..." +
-  "==##==H########.........H..." +
-  "=....=H..........H#######..." +
-  "=....=H..##......H#######..." +
-  "=---.=H.####.-...H#######..." +
-  "==.$#=H#$##$#H-..H###$###..." +
-  "######H######H.-.H#######..." +
-  "=####=H######H..-H#######..." +
-  "......H------H...H#######..." +
-  "......H$....$H.............." +
-  "############################",
-/*  54 */
-  "....S.S..S..S..S..S.S....=S." +
-  "...S..S..S..P..S..S..S...=H." +
-  "..S...S....###....S...S..=S." +
-  ".........H#####H.........=H." +
-  "..G......H#...#H......G..=S." +
-  "..H####H###...###H####H..=H." +
-  "..H.$$#H..#...#..H#$$.H..=S." +
-  "..H.$$#H.#-$-$-#.H#$$.H..=H." +
-  "..H####H.#.#$#.#.H####H..=S." +
-  ".......H.#######.H.......=H." +
-  ".......H.........H....###=S." +
-  ".......H.........H....#H##H." +
-  "#######################H#$S$" +
-  "==========================H=" +
-  "=$$$$$$$$$$$$$$$$$$$$$$$$$S=" +
-  "============================",
-/*  55 */
-  "HHH######################HHH" +
-  "H$H------H--------H------H$H" +
-  "HGH......H........H......HGH" +
-  "#HH.=###=H#..P...#H=###=.HH#" +
-  "#S..=###=H###==###H=###=..S#" +
-  "#S..=###=HH##==##HH=###=..S#" +
-  "#S..=#$#=.H##==##H.=#$#=..S#" +
-  "#S..=#X#=.H##$$##H.=#X#=..S#" +
-  "#S........H##==##H........S#" +
-  "#S........H##==##H........S#" +
-  "#S..#####HH##==##HH#####..S#" +
-  "#S..#...#H###==###H#...#..S#" +
-  "#HS.#$$$#H#......#H#$$$#.SH#" +
-  "HGS.#####H--------H#####.SGH" +
-  "H$S......H........H......S$H" +
-  "HHS######H########H######SHH",
-/*  56 */
-  "G................P.......S.." +
-  "..$......................S.." +
-  "..H....$....$....$.......S.." +
-  "..H----H####H####H....$..S.." +
-  "..H...H#....H....H####H#XH.." +
-  "..H.$.H..$..H....H....H..H--" +
-  "##H#S#H###############H##HX." +
-  "G#H.S.H#.....###---$.....HX." +
-  "..H.S.H......$---..H..$..HX#" +
-  "..#####S.....H.....H.....HX." +
-  ".......S.....H.....H..#####." +
-  ".....$.S...$.G.....H........" +
-  "X####H######H#######S$......" +
-  "X####H......H.......#H#####." +
-  "X$$##H......H........H......" +
-  "#####=##=#==H==#=##=###=####",
-/*  57 */
-  "...................H$.....$." +
-  "..................$H#######X" +
-  ".SSSSSSSSSHH#######H$..$...$" +
-  ".S.......HH##H..$..H#######X" +
-  ".S......HH##HH#####H$.....$$" +
-  ".S......H##HH$....$H#######X" +
-  ".S......HH##H######H$..$...$" +
-  ".S.......HH##H$.$..H#######X" +
-  ".S...HHH..HH##H####H$.....$$" +
-  ".S..H...H..HH#H...$H#######X" +
-  ".S.H..G..H..H#H####H...$...$" +
-  ".HH...G...HHH#H.$..H#######X" +
-  ".H#H..G.#...##H####H$.....$." +
-  ".H#H#HG.#.#.#HH.$..H######H$" +
-  ".H#H#HG.#.#.#H$...$H...$..HP" +
-  "############################",
-/*  58 */
-  "............GP.............S" +
-  "...........................S" +
-  "...........................S" +
-  ".$..$...$..................S" +
-  "###H#########H###########H.S" +
-  "..GH.........H.......G...H.S" +
-  "...H.........H...........H.S" +
-  "...H..$....$.H.$.........H.S" +
-  "...H###H######H##H.......H.S" +
-  ".$.H...H------H..H.$....$H.S" +
-  "H######H....H.H..H###H###H.S" +
-  "H......H----H-H--H...H...H.S" +
-  "H..$...H.$..H....H...H...H.S" +
-  "X##########################S" +
-  "H....$........$..$....$....S" +
-  "X##########################S",
-/*  59 */
-  "HH########################HH" +
-  "HS....H.-....HH....-.H....SH" +
-  "#S####H#.####HH####.#H####S#" +
-  "#S#H..H#.#H..HH..H#.#H..H#S#" +
-  "#S#H..H#.#H######H#.#H..H#S#" +
-  "#S#H.$H#$#H.$##$.H#$#H$.H#S#" +
-  "#S#H######H######H######H#S#" +
-  "#S.H......H$.GP.$H......H.S#" +
-  "#S.H......H$....$H......H.S#" +
-  "#S#H######H######H######H#S#" +
-  "#S#H.$H#$#H.$##$.H#$#H$.H#S#" +
-  "#S#H..H#.#H######H#.#H..H#S#" +
-  "#S#H..H#.#H..HH..H#.#H..H#S#" +
-  "#S####H#.####HH####.#H####S#" +
-  "HS....H.-....HH....-.H....SH" +
-  "HH########################HH",
-/*  60 */
-  "............S..............." +
-  "...........#S####..........." +
-  "......----##S...##.........." +
-  "......H.#..#S....###........" +
-  "......H.##..S$.G...#........" +
-  "......H###H#########........" +
-  "......H#..H........#........" +
-  "......H#..H.$..$...#........" +
-  "......H#X#H#######H........." +
-  "......H.X.H.......H#######.." +
-  "..SS..H.X.H.......H#........" +
-  "..SS..H.X-H-------HH........" +
-  ".SSSS.H.X.H####X###H........" +
-  ".S..S.H.X.H..$.X..#H........" +
-  ".S..S.H.X.#######.#H.......P" +
-  "#########========G=#########",
-/*  61 */
-  "...S.............S.........." +
-  "...S.............S..#######." +
-  "...S.....$..H###HS..#..#..#." +
-  "...S.$H#######.$#H.....#...." +
-  "...H############.H....$#...." +
-  ".H#####.$..$..#..$...H###..." +
-  "H#....#####H###########....." +
-  "H..##H.#...H#G#........##..." +
-  "H.#HH#H....P#$#.......#HH#G." +
-  "H#$HH$#HH##H###H.....#$HH$#." +
-  "#HHHHHH#H.###$###$.H#HHHHHH#" +
-  "#HHHHHH#H...###.##.H#HHHHHH#" +
-  ".#$HH$#.H..........H.#$HH$#." +
-  "..#HH#..H..........H..#HH#.." +
-  "...##...H..........H...##..." +
-  "############################",
-/*  62 */
-  "H--------------------------H" +
-  "H.....####........####.....H" +
-  "H....#..==#H....H#==..#....H" +
-  "H....#..=$#H.GG.H#$=..#....H" +
-  "H.....####HH####HH####.....H" +
-  "H.........H#....#H.........H" +
-  "H.........H#=$$=#H.........H" +
-  "H..######################..H" +
-  "H.#........H#..#H........#.H" +
-  "H.#...H##H-H#$$#H-H##H...#.H" +
-  "H.#..H#..#.H-##-H.#..#H..#.H" +
-  "H.#..H#$$#.HG..PH.#$$#H..#.H" +
-  "H..######################..H" +
-  "H..........................H" +
-  "H..........................H" +
-  "############################",
-/*  63 */
-  "H---------.##########.-----H" +
-  "H........##.......##.##....H" +
-  "H........#..G.........#....H" +
-  "H.......#######G########...H" +
-  "H....###...#.$###$.#...###.H" +
-  "H...#.##...#.#.#.#.#...##.#H" +
-  "H...#..#...#$..#..$#...#..#H" +
-  "H...#..#...##$###$##...#..#H" +
-  "H....###...P#X#..X##...###.H" +
-  "H.......#..$.X....X.$..##..H" +
-  "H.......#G##$.X..X.$##G#...H" +
-  "H........#..#$.##.$#..#....H" +
-  "H.........#..#$..$#..#.....H" +
-  "H..........#..#$$#..#......H" +
-  "H$$$$$$$$$$$#..##..#$$$$$$$H" +
-  "HHHHHHHHHHHHH######HHHHHHHHH",
-/*  64 */
-  "..........................H." +
-  "........................H..." +
-  "....H----H..............H..." +
-  "$...H...$H.......P.....GH..." +
-  "####H############H......H..." +
-  "............$....H......H..." +
-  "............H----H......H..." +
-  ".......$....H....H....H-H..." +
-  ".......H----H...$H$...H$H..." +
-  "...$...H....H---HHS####X#..." +
-  "...G...H....$...H######X#..." +
-  "...H###H##########.........." +
-  "...H...S...................." +
-  "...H...S...................." +
-  "...H...S.................$.." +
-  "############################",
-/*  65 */
-  "#H########################H#" +
-  "#H#......................#H#" +
-  "#H#$.......$.....$......$#H#" +
-  "#H#########H-----H########H#" +
-  "#H##.......H.....H......##H#" +
-  "#S$#.......H..$..H......#$S#" +
-  "##H###########H##########H##" +
-  "#.H...........H..........H.#" +
-  "#$H...---.....H.....---..H$#" +
-  "#H#####X######H######X####H#" +
-  "#H............H...........H#" +
-  "#H.....$......H......$....H#" +
-  "#H#####X######H######X####H#" +
-  "#H............$...........H#" +
-  "#H.....G......P......G....H#" +
-  "############################",
-/*  66 */
-  "S..........................S" +
-  "SG$$$$$$$$$$$P$$$$$$$$$$$$GS" +
-  "H##########################H" +
-  "H--------------------------H" +
-  "H..........................H" +
-  "H--------------------------H" +
-  "HXXXXXXXXXXXXXXXXXXXXXXXXXXH" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H##########################H" +
-  "H##########################H" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H--------------------------H" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "H##########################H" +
-  "H==========================H",
-/*  67 */
-  "..S........................S" +
-  "..S......$.....$...........S" +
-  "..S......H.....H...........S" +
-  "..S------H-----H........$..S" +
-  "..H...$........H...$....H..S" +
-  "..H---H......------H----H..S" +
-  "..H...H......H.....H....H..S" +
-  "..H---H---...H.....H....H--S" +
-  "..H------H---H.....--H--H..." +
-  ".........H...H....$..H......" +
-  ".............H....H......$.." +
-  "...$.........H....H------H.." +
-  "...H.........H----H----HHH.." +
-  "...H---------H----H......H.." +
-  "...H.....................H.." +
-  "GG.H.....................H.P",
-/*  68 */
-  "...........................H" +
-  "...........................H" +
-  "G..$..$.........----H......H" +
-  "#########H.....-....H.$...SH" +
-  ".........H----------H#####X#" +
-  ".........H....$..P..H......." +
-  "......H###########H.H......." +
-  "......H....#####H.H.H......." +
-  ".$.$..H....#.$.#H.H.H......." +
-  "#########H.#####H.H$H.$.$..." +
-  ".........H.=====HH#######H.." +
-  ".........H-------H.......H.." +
-  ".........H...$...H.......HG$" +
-  ".........H.......H.......###" +
-  "G..$.....H.......H.........." +
-  "############################",
-/*  69 */
-  "#####S######################" +
-  "#H$H#S#G...$.........$....H#" +
-  "#H#H#S####################H#" +
-  "#H#H#S.$.....$........$...H#" +
-  ".H#H#############H########H#" +
-  ".##HH#H..$..G..H#H#..$H#$#H#" +
-  ".#$.H#H########H#H#..#H#H#H#" +
-  ".###H#H#.$...$#H#H#..#H#H#H#" +
-  ".#$.H#H#......#H#H#.G#H#H#H#" +
-  ".###H#H#H##$#H#H#H####H#H#H#" +
-  ".#H$H#H#H#.H#H#H#H....H$H#H#" +
-  ".#H###H#H#.H#H#H##########H#" +
-  ".#H..GH#H#.HHH#H..$......#H#" +
-  "##H#####H#.S#H############H#" +
-  "P.H....$H#.S#H$.....$.....H#" +
-  "##########GS################",
-/*  70 */
-  ".S.........................S" +
-  ".S.#######################.S" +
-  ".S#....HH---H##H---HH.....#S" +
-  ".S#....H#...H##H...#H.....#S" +
-  ".S#....H####H##H####H.....#S" +
-  ".S#....H#$$$.##.$$$#H.....#S" +
-  ".S#....H#....##....#H.....#S" +
-  ".S#....H------------H.....#S" +
-  ".S#####HXXXXXXXXXXXXH######S" +
-  ".S#....H------------H.....#S" +
-  ".S#....H#....##....#H.....#S" +
-  ".S#....H#$$$.##.$$$#H.....#S" +
-  ".S#....H############H.....#S" +
-  ".S#....H#...H##H...#H.....#S" +
-  ".S#P...HH---H##H---HH....G#S" +
-  ".S.#######################.S",
-/*  71 */
-  "...............G............" +
-  ".............##X#####S......" +
-  "..G.$..$.......$......S....." +
-  "..X#######H----.$.$....S...." +
-  "..........H....#####H.S....." +
-  "...$..$.--H.........H-.S.$.G" +
-  "..######..H...$.....H.#####X" +
-  "..........H#######$.H......." +
-  "..........H.......##H......." +
-  "...$.$.---H.........H......." +
-  "..#####...H.........H......." +
-  "..........H.........H.$.$..." +
-  "....$...$.H.$.......#######." +
-  "...############H............" +
-  "...............H...........P" +
-  "############################",
-/*  72 */
-  "#P#......############$$$#..G" +
-  "#$#.....##..........###HH#GG" +
-  "#$#...#H#$$$$$$$$$$$$$##H##G" +
-  "#$#..##H$############HH#HHH#" +
-  "#$#..#.H####$$$$$$$$$#HH#$H#" +
-  "#$#.##.##$#$$######$$.#H#$H#" +
-  "#$#$#..#$$#$##....###$#H#$H#" +
-  "#$#$#.$#$##$#$$G$$$H#$#H#$H#" +
-  "#$#$#.##$#.$#$####HH#$#H.#H#" +
-  "#$#$#$##$#$##$#$$$#H#$#H$#H#" +
-  "#$#$#$##$#$#$$$$$$#H#$#H$#H#" +
-  "#$#$#$##$#$########H#$#H$#H#" +
-  "#$#X#$##$#$$$$$$$$$H#$#H$#H#" +
-  "#$.X#$##$############$#H##H#" +
-  "##$$$$$$$$$$$$$$$$$$$$$H$$H#" +
-  ".###########################",
-/*  73 */
-  "#######....................G" +
-  "########H......HH..........." +
-  "########HHHH...H.##########." +
-  "#####$$#...H...H.##########." +
-  "##########.H..PH.##########." +
-  "...........HH###.##########." +
-  "............H#$#.#$$$$$$$$#." +
-  "............H###.##########." +
-  "............H....##########." +
-  "............H....##########." +
-  "............H....##########." +
-  "#######.....H##############." +
-  "#######H....H..#...#...#..GX" +
-  "#$$$$##H....H#H#H#H#H#H#H#HX" +
-  "#######H....H#H.H#H.H#H.H#H$" +
-  "############################",
-/*  74 */
-  "##H$$$$$$----------$$$$$$.##" +
-  "#$H######G........G######.$#" +
-  "#HH.######........#####...P#" +
-  "HHH.#...#.........#...#...##" +
-  "H#H.#..$#..#$..$#.#$..#...#G" +
-  "H#H.####...#$..$#..####...#G" +
-  "H#H........#$..$#.........#G" +
-  "H#S.........#$$#.........S#." +
-  "H##S..###$$......$$###..S##." +
-  "H.#SS.#####SSSSSS#####.SS#.." +
-  "H.##SS.##$.######.$##.SS##.." +
-  "H..##SS.##$$$..$$$##.SS##..." +
-  "H...##SS.####$$####.SS##...." +
-  "H....#SSSS..####..SSS##....." +
-  "H.....##HSSSSSSSSSSS##......" +
-  "############################",
-/*  75 */
-  "....................S......." +
-  "....G......G........S......." +
-  "...###.....#........S#S....." +
-  "..........H--$.......$S..#.." +
-  "......----H#.H.....H###..#.." +
-  "--$---..X.H..H.----HH----H.." +
-  "..#.#$..##H..X#....#H....H--" +
-  "P.#.##....H.........H--..H.." +
-  "..#$......H-----$$.-H.#..H$#" +
-  ".......$#....H.###X.H$#.H###" +
-  "H---...##...HH...##.###.H..." +
-  "H..H........H#$......##.H..." +
-  "H.H.#$....HHHH#HHHH#...$H..." +
-  "H.H.##HH.$H..--H.H##$--#H..." +
-  "H$#...H.##H-$..H.H..H#.#H..." +
-  "###...H...H...$H....##..H...",
-/*  76 */
-  "...S........................" +
-  "...S....G..................." +
-  "..######H..................." +
-  "........H..--------H........" +
-  "........H$........$H........" +
-  "........##########X##H#H...." +
-  ".....................H.H.$.P" +
-  ".....................H.=====" +
-  "..............H----.$H......" +
-  "..$G.$........H...####......" +
-  ".#####H.......H............." +
-  "......H.....$.H............." +
-  "......H..#H###.............." +
-  "......H...H........H--------" +
-  "....$.H...H...G....H...$...." +
-  "#####################=======",
-/*  77 */
-  "..................S........." +
-  "..................S...------" +
-  "............$.....S$G#.....S" +
-  "====####====H....#####.....S" +
-  ".H---.......H----H.........S" +
-  ".H..........H....H---------S" +
-  ".H.H####----H....H.........." +
-  ".H.H#..#....H.$..H.........." +
-  ".H.H#..#..##X##..H.....$...." +
-  ".H.H#$G#.........H.........." +
-  ".H.H####.........H.........." +
-  ".H...............H......P..." +
-  ".H.........$.....H..#H###X.." +
-  ".H......H###H....H..#H...X.." +
-  ".H.G....H$..H....H..#H...X.." +
-  "===##################H.$.X##",
-/*  78 */
-  "G...S...S...S...S.S..S.....P" +
-  "....S...S...S...S.S..S......" +
-  "....S...S...S...S.S..S......" +
-  "....S...S...S...S.SH###H...." +
-  "....S.H###H.S...S.SH#$#H...." +
-  "....S.H#$#H.S.H###HH###H...." +
-  "....S.H###H.S.H#$#HH...H...." +
-  "....S.H...H.S.H###HH...H...." +
-  "..H###H...H.S.H...HH...H...." +
-  "..H#$#H...H.S.H...HH...H...." +
-  "..H###H...H###H...HH...H###H" +
-  "..H...H...H#$#H.H###H..H#$#H" +
-  "..H...H...H###H.H#$#H..H###H" +
-  "..H...H...H...H.H###H..H...H" +
-  "..H...H...H...H.H...H..H...H" +
-  "############################",
-/*  79 */
-  "=$$$$$$$$$$$$$$$$$$$$$$$$$$=" +
-  "=HHHHHHHHHHHHHHHHHHHHHHHHHH=" +
-  "=HHHHHHHHHHHHHHHHHHHHHHHHHH=" +
-  "=HHHHHHHHHH$G$HHHHHHHHHHHHH=" +
-  "=HP...HHHHHH#HHHHHHH$HHHHHH=" +
-  "=X####HHHHHH#HHHHHHH$HHHHHH=" +
-  "=X$$$#HHHHHH#HHHHH$$#$$HHHH=" +
-  "=X####HHHHH$#HHHHHHH$HHHHHH=" +
-  "=X$$##HHHHH#$HHHHHHH$HHHHHH=" +
-  "=X$$$$HHHHH#HHHHHHHHHHHHHHH=" +
-  "=X##$$HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HH###HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HHHH#HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HHHH#HHHH##HHHHHHH$HGH$HHH=" +
-  "=HHHH#HHHH#HHHHHHHH#####HHH=" +
-  "############################",
-/*  80 */
-  "---------------------------H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....$$$$$$$$$.......H" +
-  "$$$$$$$...S#########S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S.H#H###" +
-  "P$$$$$$...S.........S.H#S.GG" +
-  "########################SGGG",
-/*  81 */
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHH$HHHHHH" +
-  "H$HHHHHHHHHH$HHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHH$HHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHH$HHHHH$HHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHH$HHHHHHHHHHHHHH" +
-  "HHHHH$HHHHHHHHHHHHH$HHHHHH$H" +
-  "HHHHHHHHHH$HHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "PHHHHHHHHHHHHHHHHHHHHHHHHHHG",
-/*  82 */
-  ".............H.............." +
-  ".$..G.$......H.....----....." +
-  "==##H###.....H-----...H....." +
-  "....H.................H....." +
-  "....H.................H....." +
-  "----H..............GS##X####" +
-  "....H...........S####......." +
-  "....H...........S..........." +
-  "$...H.......$...S..........." +
-  "....H------H#####..........." +
-  "....H..P$..H----H-----.....$" +
-  "#H#=X=#=####....H....##H####" +
-  ".H............$.H......S...." +
-  ".H..............H......S...." +
-  ".H...$..........H...$..S...$" +
-  "######################GS####",
-/*  83 */
-  "#G########################S#" +
-  "#$.#..#.$#.H#.H#..#.H#H.#$S#" +
-  "#H.#..#.H#.H#.H#..#$H#H.#HS#" +
-  "#H.#..$.H#$H#.H#$.#.H#H$#HS#" +
-  "#H$#.H#HH#.H#.H$H.#.H#HH$HS#" +
-  "#HH.$H#H.#.H#.H#H.#.H#HH#HS#" +
-  "#HH#HH#H.#.H#$H#H.$.H#.H#HS#" +
-  "#.H#HH#H.#.H#HH#HH#HH#.H#HS#" +
-  "#GH.$H#H$.$H#H.#.H#H.#$H#HS#" +
-  "#.H#HH#HH#HH#H.#.H#H.#.H#HH#" +
-  "#.H#H.#HH#HH#H.$.H#H.#.H#HH#" +
-  "#.H#H.#.H#HH#HH#HH#H$--H#HH#" +
-  "#.H#H.$$H#.H.$H#HH#HH#.H#H$#" +
-  "#.H#HH#HH#.H#HH#H.#HH#.H#H.#" +
-  "#$H#HH#HH#$H#HH#H$#HH#$H#HP#" +
-  "############################",
-/*  84 */
-  "#.........................S#" +
-  "#......G..................S#" +
-  "#...S########S............S#" +
-  "#...S........S......H-----S#" +
-  "#...S.----H..S..$.$.H..$..S#" +
-  "#...H..===H..#######H--H..S#" +
-  "#---H.....H.$..$....H.....S#" +
-  "#HXXH.....X###.H----H....$S#" +
-  "#H...$.........H........####" +
-  "#H--HH-----....H....$.-----H" +
-  "#.......$.H..$.H------...##H" +
-  "##...XXH#.H--H......S.....#H" +
-  "###....H..H........XS..X..#H" +
-  "####...H--H.......#.S...#.#H" +
-  "#####.....S.......#GS.G####H" +
-  "######GG..S.....########$.PH",
-/*  85 */
-  "..........S...............S." +
-  "..........S...............S." +
-  "..........S......$........S." +
-  "......$...S......H........S." +
-  "......H---H------H--------H." +
-  "......H.....$....H...$....H." +
-  "......H...$......H......$.H." +
-  "......H.....X=#=#H#=######H#" +
-  "..G...H...................H." +
-  "..H...H..$-......$....G$..H." +
-  "##H###H##H.-..........H##.H." +
-  "..H...H..H..-.........H...H." +
-  "..H......H...-........H..$H." +
-  "..H...$..H....-.......H.###." +
-  "..$......H.....-......H.P..$" +
-  "##X######H#XXXXX############",
-/*  86 */
-  "###H--H.$..-------...G.-----" +
-  "H.#H..H####P......=====..$.." +
-  "H$#H..H..$........---H.....$" +
-  "H.#H..H####........$.H..####" +
-  "H..H..H.$.$..........H......" +
-  "#H##..####H..........H.$.$.." +
-  ".H....$...HG.......#.H.###.." +
-  ".H....####H..........H--...." +
-  ".H......$.H................." +
-  ".H.$..H###H.H=======........" +
-  "X###..H$..$.H....$.........." +
-  "......####H.H----H---------." +
-  "..........S............$...." +
-  "..........S............#...." +
-  "..........S................." +
-  "##########H#################",
-];
+const QS = new URLSearchParams(location.search);
+const LEVELS_URL = QS.get("levels") || "levels.json";
+const README_URL = QS.get("readme") || "README.md";
+
+/* Filled in by init() before the game starts.  `LEVELS` stays the one name the
+   rest of the game reads, exactly as it was when the levels were inline. */
+let LEVELS = [], LEVEL_TITLE = "", LEVEL_WIN = "";
+
+/* JSON.parse rejects a literal newline inside a string literal, and a board is
+   nothing but literal newlines.  So walk the text once and escape every
+   control character that occurs INSIDE a string, leaving everything outside
+   strings alone so the file's own layout is untouched.  Tracking the in-string
+   state is the whole job: a quote toggles it, and a backslash inside a string
+   swallows the next character, so \" does not toggle and \\ does not swallow
+   the quote that follows it.
+   The cost of the relaxation: the level files are not strictly valid JSON, so
+   jq and Python's json.load will not read them as they stand. */
+const JSON_ESCAPES = { "\n": "\\n", "\r": "\\r", "\t": "\\t",
+                       "\b": "\\b", "\f": "\\f" };
+function escapeControlsInStrings(text) {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { out += ch; esc = false; continue; }     /* escaped, verbatim */
+    if (ch === "\\") { out += ch; esc = inStr; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && ch < " ") {
+      out += JSON_ESCAPES[ch] ||
+             ("\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/* 16 lines of 28 characters in, one 448-character row-major string out - the
+   shape buildLevel has always read.  The board is trimmed as a whole, and
+   trailing spaces are dropped per line since no tile character is a space, so
+   one can only be an accident.  LEADING whitespace is deliberately kept:
+   dropping it would silently shift a row sideways, whereas keeping it fails
+   the width check below, or is named as a bad character by validateLevels. */
+function flattenBoard(board, num, url) {
+  const where = url + " level " + num;
+  const rows = board.trim().split(/\r?\n/).map(function (r) {
+    return r.replace(/[ \t]+$/, "");
+  });
+  if (rows.length !== TH)
+    throw Error(where + " has " + rows.length + " rows; expected " + TH);
+  rows.forEach(function (r, y) {
+    if (r.length !== TW)
+      throw Error(where + " row " + (y + 1) + " is " + r.length +
+                  " characters; expected " + TW + ' ("' + r + '")');
+  });
+  return rows.join("");
+}
+
+function parseLevelFile(text, url) {
+  let data;
+  try {
+    data = JSON.parse(escapeControlsInStrings(text));
+  } catch (err) {
+    throw Error(url + " is not valid JSON: " + err.message +
+                "\n(the position is counted after escaping, where each board " +
+                "is one line, so it will not match the line numbers in the file)");
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    throw Error(url + ": expected a JSON object with title, win and levels");
+  if (typeof data.title !== "string" || !data.title)
+    throw Error(url + ': "title" must be a non-empty string');
+  if (typeof data.win !== "string")
+    throw Error(url + ': "win" must be a string');
+  if (!Array.isArray(data.levels) || !data.levels.length)
+    throw Error(url + ': "levels" must be a non-empty array');
+  const boards = data.levels.map(function (entry, i) {
+    if (!entry || typeof entry.board !== "string")
+      throw Error(url + " level " + (i + 1) + ': needs a "board" string');
+    return flattenBoard(entry.board, i + 1, url);
+  });
+  return { title: data.title, win: data.win, boards: boards };
+}
 
 /* ========================================================================
    Game state
@@ -2389,13 +1119,15 @@ let level = 0, state = "ready";
 let terrainDirty = true;
 let deadTimer = 0, passTimer = 0;
 let moveOffset = 0, moveId = 0;
+let hiddenLadders = [];
+let luckCounter = 0;
 
 const el = function (id) { return document.getElementById(id); };
 
 function newActor(x, y) {
   return { pos: { x: x, y: y, xOffset: 0, yOffset: 0 },
            action: A_STOP, face: 1, dist: 0, anim: "stand",
-           hasGold: 0, shakeTick: 0, bornTick: 0, dieTick: 0, holePos: null,
+           hasGold: 0, shakeTick: 0, bornTick: 0, dieTick: 0,
            falling: false, fallFrom: 0 };
 }
 
@@ -2408,7 +1140,7 @@ function newActor(x, y) {
 function leaveTile(x, y) {
   const c = map[x][y];
   let t = c.base;
-  if (t === BRICK || t === HLADDER || t === GOLD) t = EMPTY;
+  if (t === BRICK || t === GOLD) t = EMPTY;
   c.act = t;
 }
 
@@ -2422,17 +1154,34 @@ function buildLevel(n) {
   const s = LEVELS[n];
   map = []; guards = []; runner = null; holes = []; digging = null;
   goldLeft = 0; goldComplete = false; moveOffset = 0; moveId = 0;
+  hiddenLadders = [];
+  /* The original only zeroes its counter when a new game starts, so it drifts
+     across levels and restarts.  We zero it per level instead, which makes a
+     level replay identically every time - the same board and the same inputs
+     always give the same guards. */
+  luckCounter = 0;
   for (let x = 0; x < TW; x++) {
     map[x] = [];
     for (let y = 0; y < TH; y++) map[x][y] = { base: EMPTY, act: EMPTY, trapSeen: false };
   }
-  for (let y = 0; y < TH; y++) {
-    for (let x = 0; x < TW; x++) {
+  /* Bottom-to-top, right-to-left.  The original unpacks a level from (27,15)
+     back to (0,0) (CODE 1 @0x2c0e / @0x2c2a) and registers each guard as it
+     meets it, so its guard list is in reverse reading order - and that list
+     order is the round-robin turn order, which decides who moves first when a
+     tick hands out fewer steps than there are guards.  It also decides which
+     five survive the cap on an over-populated level. */
+  for (let y = TH - 1; y >= 0; y--) {
+    for (let x = TW - 1; x >= 0; x--) {
       const t = CHAR2TILE[s[y * TW + x]];
       const c = map[x][y];
       switch (t) {
         case GOLD:    c.base = GOLD;    c.act = EMPTY; goldLeft++; break;
-        case HLADDER: c.base = HLADDER; c.act = EMPTY; break;
+        /* A hidden ladder is not put on the board at all - the original
+           lifts it out into a side list and leaves the cell genuinely bare
+           (CODE 1 @0x2c5c), which is why a buried guard can come back on one
+           and why one gives a charging guard no footing.  The original's list
+           holds 45; the most any level in either set needs is 44. */
+        case HLADDER: c.base = EMPTY; c.act = EMPTY; hiddenLadders.push([x, y]); break;
         case GUARD:
           c.base = EMPTY;
           if (guards.length < 5) { c.act = GUARD; guards.push(newActor(x, y)); }
@@ -2452,14 +1201,10 @@ function buildLevel(n) {
 }
 
 function revealLadders() {
-  for (let x = 0; x < TW; x++) {
-    for (let y = 0; y < TH; y++) {
-      const c = map[x][y];
-      if (c.base === HLADDER) {
-        c.base = LADDER;
-        if (c.act === EMPTY) c.act = LADDER;
-      }
-    }
+  for (const [x, y] of hiddenLadders) {
+    const c = map[x][y];
+    c.base = LADDER;
+    if (c.act === EMPTY) c.act = LADDER;
   }
   goldComplete = true;
   terrainDirty = true;
@@ -2475,10 +1220,24 @@ function decGold() {
    Movement primitives.  Crossing rule: when the offset passes the tile
    half-width, hand over to the next tile and fold the offset back.
    ======================================================================== */
+/* Step a perpendicular offset one notch toward the middle of the tile.  The
+   original does this on every move that actually happens - a vertical move
+   pulls the horizontal offset in and vice versa (CODE 1 @0x5fcc, @0x5fec) -
+   and never on a move that was blocked. */
 function towardZero(v, step) {
   if (v > 0) return Math.max(0, v - step);
   if (v < 0) return Math.min(0, v + step);
   return 0;
+}
+
+/* True when the actor has reached, or gone past, the middle of its tile in
+   the direction it is heading - the only moment the original consults the
+   tile ahead. */
+function atCentreFor(p, action) {
+  if (action === A_LEFT)  return p.xOffset <= 0;
+  if (action === A_RIGHT) return p.xOffset >= 0;
+  if (action === A_UP)    return p.yOffset <= 0;
+  return p.yOffset >= 0;                 /* A_DOWN and A_FALL */
 }
 
 /* ========================================================================
@@ -2542,17 +1301,30 @@ function runnerStep(action, blocked) {
     if (nb !== LADDER && nb !== GUARD) action = A_FALL;
   }
 
+  /* Off a ladder there is exactly one way up: out of the tile that sits on a
+     ladder's top, and only while still above that tile's middle.  The original
+     allows that step and refuses it at the middle (CODE 1 @0x4f92), so the
+     runner walks its last sub-steps and comes to rest dead centre in the tile
+     above the ladder - which is the position the level exit tests for.  Note
+     this is a move, not a block: blocking here would strand the runner a
+     sub-step or two high and make the top of every such ladder a dead end. */
   if (action === A_UP) {
     const onLadder = map[p.x][p.y].base === LADDER;
     const ladderBelow = p.y < TH - 1 && map[p.x][p.y + 1].base === LADDER;
-    if (!onLadder) {
-      /* stepping off the top of a ladder: keep re-centering, don't leave */
-      if (ladderBelow && p.yOffset > 0) blocked = true;
-      else { runner.dist = 0; runner.anim = "stand"; return afterRunnerStep(); }
+    if (!onLadder && !(ladderBelow && p.yOffset > 0)) {
+      runner.dist = 0; runner.anim = "stand"; return afterRunnerStep();
     }
   }
 
-  if (!blocked) {
+  /* The way ahead is only consulted once the actor has reached the middle of
+     its tile, and a blocked actor then changes nothing at all - it does not
+     edge back toward the centre.  Those two rules together are why everything
+     comes to rest exactly centred against a wall or on a floor, with no
+     re-centring code anywhere, and they are what stops an actor briefly
+     blocked by a moving guard from sliding backwards.  Every direction in the
+     original is gated this way (CODE 1 @0x59b6, @0x5a68, @0x5b56, @0x5c4e for
+     guards, @0x4e0e and friends for the runner). */
+  if (!blocked && atCentreFor(p, action)) {
     if (action === A_LEFT || action === A_RIGHT) {
       const nx = p.x + (action === A_LEFT ? -1 : 1);
       if (nx < 0 || nx >= TW) blocked = true;
@@ -2582,52 +1354,37 @@ function runnerStep(action, blocked) {
     case A_RIGHT: {
       const d = action === A_LEFT ? -1 : 1;
       runner.face = d;
-      if (blocked) {
-        const before = p.xOffset;
-        p.xOffset = towardZero(p.xOffset, XMOVE);
-        runner.dist += Math.abs(before - p.xOffset);
-      } else {
+      if (!blocked) {
         p.xOffset += d * XMOVE;
         runner.dist += XMOVE;
         if (d < 0 && p.xOffset < -W2) { leaveTile(p.x, p.y); p.x--; p.xOffset += LW; map[p.x][p.y].act = RUNNER; }
         else if (d > 0 && p.xOffset > W2) { leaveTile(p.x, p.y); p.x++; p.xOffset -= LW; map[p.x][p.y].act = RUNNER; }
+        p.yOffset = towardZero(p.yOffset, YMOVE);
       }
-      p.yOffset = towardZero(p.yOffset, YMOVE);
       runner.anim = (map[p.x][p.y].base === ROPE) ? "hang" : "run";
       break;
     }
     case A_UP: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset -= YMOVE;
         runner.dist += YMOVE;
         if (p.yOffset < -H2) { leaveTile(p.x, p.y); p.y--; p.yOffset += LH; map[p.x][p.y].act = RUNNER; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       runner.anim = "climb";
       break;
     }
     default: {   /* A_DOWN and A_FALL */
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset += YMOVE;
         runner.dist += YMOVE;
-        if (p.yOffset > H2) {
-          leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; map[p.x][p.y].act = RUNNER;
-          /* catch a rope on the way down */
-          if (action === A_FALL && map[p.x][p.y].base === ROPE && p.yOffset < 0) {
-            p.yOffset = 0;
-            runner.anim = "hang";
-            afterRunnerStep();
-            return;
-          }
-        }
+        if (p.yOffset > H2) { leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; map[p.x][p.y].act = RUNNER; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
-      if (action === A_FALL) {
-        runner.anim = "fall";
-        if (!onRope) runner.dist += 0;
-      } else runner.anim = "climb";
+      /* No explicit rope catch: the fall rule already treats a rope as solid
+         at the tile centre, so a fall through one stops there by itself. */
+      runner.anim = action === A_FALL ? "fall"
+                  : onRope ? "hang" : "climb";
       break;
     }
   }
@@ -2643,26 +1400,31 @@ function afterRunnerStep() {
     c.base = EMPTY; terrainDirty = true;
     sfx("gold"); decGold();
   }
-  checkCollision();
 }
 
-/* The pickup window is why xMove(8) < W4(10) and yMove(9) < H4(11) matter:
-   an actor always lands inside it while crossing the tile centre. */
+/* Dead centre, and only dead centre.  The original gates gold pickup on both
+   sub-tile offsets being exactly 2 of 5 - the tile's middle step (CODE 1
+   @0x635c) - which our signed offsets write as zero.  Because a step is
+   always a whole 8 units out of 40, an actor crossing a tile always lands on
+   the centre exactly once, so nothing can be skipped over. */
 function inPickupWindow(p) {
-  if (p.xOffset === 0 && p.yOffset >= 0 && p.yOffset < H4) return true;
-  if (p.yOffset === 0 && p.xOffset >= 0 && p.xOffset < W4) return true;
-  if (p.y < TH - 1 && map[p.x][p.y + 1].base === LADDER && p.yOffset < H4 && p.yOffset > -H4) return true;
-  return false;
+  return p.xOffset === 0 && p.yOffset === 0;
 }
 
-function checkCollision() {
-  const p = runner.pos;
-  const rx = p.x * LW + p.xOffset, ry = p.y * LH + p.yOffset;
-  for (const g of guards) {
-    if (g.action === A_REBORN) continue;
-    const gx = g.pos.x * LW + g.pos.xOffset, gy = g.pos.y * LH + g.pos.yOffset;
-    if (Math.abs(gx - rx) < DEATH_X && Math.abs(gy - ry) < DEATH_Y) return killRunner();
-  }
+/* Lethality is pure tile occupancy, and it is one-directional: in the whole
+   of the original there are exactly five places that set the death flag, and
+   all five are in guard movement, at the moment a guard finishes crossing
+   into a tile whose occupancy reads RUNNER.  Walking into a guard yourself
+   does not kill you - the runner's own movement code has no death test at
+   all.  (The other two ways to die are a hole closing on you and the Abort
+   Man menu item.)
+   This is what makes a guard crossing a tile boundary lethal at up to 0.8 of
+   a tile of centre separation, and it is why the earlier symmetric 12x14
+   proximity box - about 0.3 of a tile, and lethal on the runner's own step -
+   made tight corridors behave differently from the original. */
+function guardEnteredRunner(g) {
+  if (g.action === A_REBORN) return;
+  if (g.pos.x === runner.pos.x && g.pos.y === runner.pos.y) killRunner();
 }
 
 function killRunner() {
@@ -2687,35 +1449,41 @@ function tryShoot(dir) {
   const tx = p.x + dir, ty = p.y + 1;
   if (ty > TH - 1 || tx < 0 || tx >= TW) return afterRunnerStep();
   if (map[tx][ty].act !== BRICK) return afterRunnerStep();
-  if (map[tx][p.y].act !== EMPTY) return afterRunnerStep();
-  if (map[tx][p.y].base === GOLD) return afterRunnerStep();
+  /* Terrain in the way still refuses the shot - the debris has to go
+     somewhere - but a guard standing there does not.  The original refused,
+     which meant the one moment you most want to fire was the moment the key
+     stopped working; now the floor goes out from under him instead. */
+  const debris = map[tx][p.y];
+  if (debris.act !== EMPTY && debris.act !== GUARD) return afterRunnerStep();
+  if (debris.base === GOLD) return afterRunnerStep();
   p.xOffset = 0; p.yOffset = 0;
-  digging = { x: tx, y: ty, tick: 0, dir: dir };
-  terrainDirty = true;
+  /* frame 1, not 0: the tick that starts the dig is itself the first of them */
+  digging = { x: tx, y: ty, tick: 1, dir: dir };
+  /* The floor gives way at once, while the brick is still visibly crumbling.
+     A guard that steps into the debris tile now finds nothing underfoot and
+     drops in, because a guard weighs up gravity before it weighs up chasing
+     you - so firing in time is what saves you, and being slow to fire is what
+     kills you.  Winding the clock back by the dig length leaves the hole open
+     for its full HOLE_TICKS after the crumble finishes, on top of the dig
+     itself, so a hole is never open for less time than before. */
+  openHole(tx, ty, -DIG_TICKS);
   sfx("shoot");
 }
 
+/* Nothing left to decide: the hole already exists, so this is just the brace
+   the runner holds while the brick comes apart. */
 function processDig() {
   const d = digging;
   runner.anim = "shoot";
   runner.face = d.dir;
-
-  /* A guard walking into the debris tile either cancels the shot outright or,
-     late enough in, forces the hole open early so the guard drops into it. */
-  if (map[d.x][runner.pos.y].act === GUARD) {
-    if (d.tick < DIG_LIMIT) { digging = null; terrainDirty = true; return; }
-    openHole(d.x, d.y);
-    digging = null;
-    return;
-  }
   d.tick++;
   terrainDirty = true;
-  if (d.tick >= DIG_TICKS) { openHole(d.x, d.y); digging = null; }
+  if (d.tick >= DIG_TICKS) digging = null;
 }
 
-function openHole(x, y) {
+function openHole(x, y, t0) {
   map[x][y].act = EMPTY;
-  holes.push({ x: x, y: y, t: 0 });
+  holes.push({ x: x, y: y, t: t0 || 0 });
   terrainDirty = true;
 }
 
@@ -2723,7 +1491,7 @@ function processHoles() {
   for (let i = holes.length - 1; i >= 0; i--) {
     const h = holes[i];
     h.t++;
-    if (h.t >= HOLE_TICKS - HOLE_WARN) terrainDirty = true;
+    if (h.t >= HOLE_TICKS - HOLE_WARN) terrainDirty = true;   /* refill art */
     if (h.t >= HOLE_TICKS) {
       const c = map[h.x][h.y];
       if (c.act === RUNNER) killRunner();
@@ -2742,50 +1510,79 @@ function processHoles() {
 }
 
 /* ========================================================================
-   Guards.  Slowness is emulated by how many guards get a full-size step
-   each tick, not by giving them smaller steps.
+   Guards.  Slowness is how many guards get a full-size step each tick, not
+   smaller steps: a phase counter cycles 0,1,2 and the row for the current
+   guard count says how many steps to hand out that tick, round-robin.  The
+   original stores the same thing as a bit pattern and counts set bits
+   (CODE 1 @0x1eb6, dispatched at @0x5982); these are those numbers.
+   Row 1 gives a lone guard 2/3 of the runner's speed, not 1/2 - that is the
+   original's value, and it is the one number here that differs from
+   LodeRunner_TotalRecall, which retuned it.
+   The original also adds a difficulty tier to the row index, but that tier
+   only advances once you wrap past the last level of the set, so on a first
+   pass through a set it is always zero.
    ======================================================================== */
 const movePolicy = [
-  [0, 0, 0, 0, 0, 0],
-  [0, 1, 0, 1, 0, 1],   /* one guard is deliberately slower than two */
-  [1, 1, 1, 1, 1, 1],
-  [1, 2, 1, 1, 2, 1],
-  [1, 2, 2, 1, 2, 2],
-  [2, 2, 2, 2, 2, 2],
-  [2, 2, 3, 2, 2, 3],
-  [2, 3, 3, 2, 3, 3],
-  [3, 3, 3, 3, 3, 3],
-  [3, 3, 4, 3, 3, 4],
-  [3, 4, 4, 3, 4, 4],
-  [4, 4, 4, 4, 4, 4]
+  [0, 0, 0],
+  [0, 1, 1],   /* 2/3 */
+  [1, 1, 1],   /* 1/2 */
+  [1, 2, 1],   /* 4/9 */
+  [1, 2, 2],   /* 5/12 */
+  [2, 2, 2]    /* 2/5 */
 ];
 
 function moveGuards() {
   if (!guards.length) return;
-  moveOffset = (moveOffset + 1) % 6;
-  let moves = movePolicy[Math.min(guards.length, 11)][moveOffset];
+  moveOffset = (moveOffset + 1) % 3;
+  let moves = movePolicy[Math.min(guards.length, movePolicy.length - 1)][moveOffset];
   while (moves-- > 0) {
-    moveId = (moveId + 1) % guards.length;
+    /* Pick, then advance.  The original's cursor is 1-based and it increments
+       before use, wrapping back to 1 rather than 0 (CODE 1 @0x5d6e), so the
+       first guard to move is the first in the list - which is the opposite of
+       advancing before picking from a 0-based array. */
     const g = guards[moveId];
-    if (g.action === A_IN_HOLE || g.action === A_REBORN) continue;
+    moveId = (moveId + 1) % guards.length;
+    /* A materialising guard still burns its turn, and so does a trapped one -
+       which is the whole reason a guard's time in a hole stretches out as the
+       guard count rises: the countdown ticks once per turn, not once per
+       frame. */
+    if (g.action === A_REBORN) continue;
+    /* Keyed on the countdown, not on the action: the countdown is the state,
+       exactly as in the original, and it has to keep ticking through the
+       climb-out or the guard never gets free. */
+    if (g.shakeTick > 0) { shakeStep(g); continue; }
     guardStep(g, bestMove(g));
     if (state !== "run") return;
   }
 }
 
+/* One turn for a guard sitting in a hole.  Three phases, all counted in
+   turns: sit still, wobble from side to side on the original's own 6-entry
+   offset table, then climb out.  Climbing is done by the ordinary mover,
+   because bestMove answers A_UP for free while the countdown runs. */
+function shakeStep(g) {
+  g.shakeTick--;
+  if (g.shakeTick > SHAKE_WOBBLE) { g.anim = "shake"; return; }
+  if (g.shakeTick > SHAKE_CLIMB) {
+    g.anim = "shake";
+    g.pos.xOffset = WOBBLE[g.shakeTick - SHAKE_CLIMB - 1];
+    return;
+  }
+  g.anim = "climb";
+  guardStep(g, bestMove(g));
+}
+
 function bestMove(g) {
   const p = g.pos, rp = runner.pos;
-  let sameLevelOnly = false;
 
-  /* A guard leaving a hole climbs straight up with no ladder, ignoring the
-     fall rule, until it is clear of the hole's row and column. */
-  if (g.action === A_CLIMB_OUT) {
-    if (p.y === g.holePos.y) return A_UP;
-    sameLevelOnly = true;
-    if (p.x !== g.holePos.x) g.action = A_STOP;
-  }
-
-  if (!sameLevelOnly) {
+  /* Trapped in a blasted brick with the countdown still running: climb
+     straight out.  No ladder needed, and gravity stays suspended until the
+     countdown expires, which is what stops the guard dropping back in.  The
+     original needs no state for this beyond the countdown itself - it just
+     asks whether it is standing in a brick (CODE 1 @0x621c). */
+  if (g.shakeTick > 0) {
+    if (map[p.x][p.y].base === BRICK) return A_UP;
+  } else {
     const cur = map[p.x][p.y].base;
     if (cur === LADDER || (cur === ROPE && p.yOffset === 0)) { /* supported */ }
     else if (p.yOffset < 0) return A_FALL;
@@ -2798,15 +1595,20 @@ function bestMove(g) {
   }
 
   /* Same-floor charge, deliberately ignoring walls: a guard will happily run
-     into a brick and stall.  That is authentic, not a bug. */
-  if (p.y === rp.y && runner.anim !== "fall") {
+     into a brick and stall.  That is authentic, not a bug.  The probe needs a
+     hold at the guard's own row, or the bottom of the board, or terrain
+     underfoot - and "terrain underfoot" is everything except open air and a
+     false brick, tested on the static layer, so a guard standing below does
+     not count and an unrevealed hidden ladder does not either
+     (CODE 1 @0x624c).  The original charges whether or not the runner is
+     falling. */
+  if (p.y === rp.y) {
     let x = p.x;
     while (x !== rp.x) {
       const cur = map[x][p.y].base;
       const nb = (p.y < TH - 1) ? map[x][p.y + 1].base : STEEL;
-      const guardBelow = p.y < TH - 1 && map[x][p.y + 1].act === GUARD;
-      if (cur === LADDER || cur === ROPE || nb === STEEL || nb === LADDER ||
-          nb === BRICK || guardBelow || nb === ROPE || nb === GOLD)
+      if (cur === LADDER || cur === ROPE || p.y >= TH - 1 ||
+          (nb !== EMPTY && nb !== TRAP))
         x += (x < rp.x) ? 1 : -1;
       else break;
     }
@@ -2857,7 +1659,7 @@ function scanFloor(g) {
       const nb = map[col][yy + 1].base;
       if (nb === BRICK || nb === STEEL) break;
       const cur = map[col][yy].base;
-      if (cur !== EMPTY && cur !== HLADDER) {
+      if (cur !== EMPTY) {
         if (col > 0) {
           const t = map[col - 1][yy + 1].base;
           if (t === BRICK || t === LADDER || t === STEEL || map[col - 1][yy].base === ROPE)
@@ -2894,10 +1696,14 @@ function scanFloor(g) {
     rate(yy, col, path);
   }
 
-  /* own column first so it wins ties, then left end inward, then right end */
+  /* own column first so it wins ties, then left end inward, then right end.
+     Climbing is not even considered from the top row - the original tests the
+     row against zero before every up-scan (CODE 1 @0x606a, @0x6110, @0x61ba),
+     and without that a guard already on row 0 rates "stay on row 0" as
+     reaching the runner's row and dithers instead of coming down. */
   let nb;
   if (y < TH - 1 && (nb = map[startX][y + 1].base) !== BRICK && nb !== STEEL) scanDown(startX, A_DOWN);
-  if (map[startX][y].base === LADDER) scanUp(startX, A_UP);
+  if (y > 0 && map[startX][y].base === LADDER) scanUp(startX, A_UP);
 
   let curPath = A_LEFT;
   x = leftEnd;
@@ -2907,7 +1713,7 @@ function scanFloor(g) {
       else break;
     }
     if (y < TH - 1 && (nb = map[x][y + 1].base) !== BRICK && nb !== STEEL) scanDown(x, curPath);
-    if (map[x][y].base === LADDER) scanUp(x, curPath);
+    if (y > 0 && map[x][y].base === LADDER) scanUp(x, curPath);
     x += (curPath === A_LEFT) ? 1 : -1;
   }
   return bestPath;
@@ -2924,27 +1730,31 @@ function guardStep(g, action) {
     if (nb !== LADDER && nb !== GUARD) action = A_FALL;
   }
 
-  if (action === A_LEFT || action === A_RIGHT) {
-    const nx = p.x + (action === A_LEFT ? -1 : 1);
-    g.face = action === A_LEFT ? -1 : 1;
-    if (nx < 0 || nx >= TW) blocked = true;
-    else {
-      const c = map[nx][p.y];
-      /* trap is tested on `base`, not `act`: otherwise, while the runner is
-         hiding inside a false brick, act reads RUNNER and guards walk in */
-      if (c.act === BRICK || c.act === STEEL || c.act === GUARD || c.base === TRAP) blocked = true;
-    }
-  } else if (action === A_UP) {
-    if (p.y <= 0) blocked = true;
-    else {
-      const c = map[p.x][p.y - 1];
-      if (c.act === BRICK || c.act === STEEL || c.act === TRAP || c.act === GUARD) blocked = true;
-    }
-  } else {
-    if (p.y >= TH - 1) blocked = true;
-    else {
-      const c = map[p.x][p.y + 1];
-      if (c.act === BRICK || c.act === STEEL || c.act === GUARD) blocked = true;
+  if (action === A_LEFT || action === A_RIGHT) g.face = action === A_LEFT ? -1 : 1;
+
+  /* Same centre-gated rule as the runner; see runnerStep. */
+  if (atCentreFor(p, action)) {
+    if (action === A_LEFT || action === A_RIGHT) {
+      const nx = p.x + (action === A_LEFT ? -1 : 1);
+      if (nx < 0 || nx >= TW) blocked = true;
+      else {
+        const c = map[nx][p.y];
+        /* trap is tested on `base`, not `act`: otherwise, while the runner is
+           hiding inside a false brick, act reads RUNNER and guards walk in */
+        if (c.act === BRICK || c.act === STEEL || c.act === GUARD || c.base === TRAP) blocked = true;
+      }
+    } else if (action === A_UP) {
+      if (p.y <= 0) blocked = true;
+      else {
+        const c = map[p.x][p.y - 1];
+        if (c.act === BRICK || c.act === STEEL || c.act === TRAP || c.act === GUARD) blocked = true;
+      }
+    } else {
+      if (p.y >= TH - 1) blocked = true;
+      else {
+        const c = map[p.x][p.y + 1];
+        if (c.act === BRICK || c.act === STEEL || c.act === GUARD) blocked = true;
+      }
     }
   }
 
@@ -2953,57 +1763,51 @@ function guardStep(g, action) {
     case A_LEFT:
     case A_RIGHT: {
       const d = action === A_LEFT ? -1 : 1;
-      if (blocked) p.xOffset = towardZero(p.xOffset, XMOVE);
-      else {
+      if (!blocked) {
         p.xOffset += d * XMOVE;
         g.dist += XMOVE;
         if (d < 0 && p.xOffset < -W2) { leaveTile(p.x, p.y); p.x--; p.xOffset += LW; crossed = true; }
         else if (d > 0 && p.xOffset > W2) { leaveTile(p.x, p.y); p.x++; p.xOffset -= LW; crossed = true; }
+        p.yOffset = towardZero(p.yOffset, YMOVE);
       }
-      p.yOffset = towardZero(p.yOffset, YMOVE);
       g.anim = (map[p.x][p.y].base === ROPE) ? "hang" : "run";
       break;
     }
     case A_UP: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset -= YMOVE;
         g.dist += YMOVE;
         if (p.yOffset < -H2) { leaveTile(p.x, p.y); p.y--; p.yOffset += LH; crossed = true; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       g.anim = "climb";
       break;
     }
     default: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset += YMOVE;
         g.dist += YMOVE;
         if (p.yOffset > H2) { leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; crossed = true; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       g.anim = action === A_FALL ? "fall" : "climb";
       break;
     }
   }
 
-  if (g.action !== A_CLIMB_OUT) g.action = action;
+  g.action = action;
   map[p.x][p.y].act = GUARD;
 
-  if (crossed) {
-    if (map[p.x][p.y].base === ROPE && action === A_FALL && p.yOffset < 0) {
-      p.yOffset = 0; g.anim = "hang";
-    }
-    guardCross(g);
-  }
+  if (crossed) guardCross(g);
 
-  /* dropped into a blasted hole */
-  if (action === A_FALL && map[p.x][p.y].base === BRICK && p.yOffset >= 0) {
-    p.yOffset = 0;
+  /* Dropped into a blasted hole.  The original arms the countdown when the
+     guard reaches the middle sub-tile step of the hole, not on entering it
+     (CODE 1 @0x5e96), which is why the guard visibly settles before it starts
+     struggling. */
+  if (action === A_FALL && map[p.x][p.y].base === BRICK && p.yOffset === 0) {
     g.action = A_IN_HOLE;
     g.anim = "shake";
-    g.shakeTick = 0;
+    g.shakeTick = SHAKE_MOVES;
     sfx("trap");
     if (g.hasGold > 0) {
       /* drop it on the tile above the hole if that tile is free, else it is
@@ -3019,7 +1823,7 @@ function guardStep(g, action) {
   }
 
   guardGold(g);
-  checkCollision();
+  guardEnteredRunner(g);
 }
 
 function guardGold(g) {
@@ -3027,65 +1831,60 @@ function guardGold(g) {
   if (g.hasGold === 0 && c.base === GOLD && inPickupWindow(p)) {
     c.base = EMPTY;
     terrainDirty = true;
-    /* removed from the map but NOT counted as collected - it is still in play */
-    g.hasGold = 12 + Math.floor(Math.random() * 26);   /* 12..37 crossings */
+    /* removed from the map but NOT counted as collected - it is still in play.
+       The original takes the hold length straight off the shared counter
+       (CODE 1 @0x6398, one's-complemented), giving 1..28 crossings. */
+    g.hasGold = luck() + 1;                            /* 1..28 crossings */
   }
 }
 
+/* The hold counts down one per tile crossed.  On reaching zero the guard
+   drops the gold wherever it happens to be standing, provided that tile's
+   terrain is bare - there is no requirement for anything solid underfoot,
+   and no cooldown afterwards (CODE 1 @0x6322).  If the tile is not bare the
+   count stays at one and it tries again next crossing. */
 function guardCross(g) {
   const p = g.pos, c = map[p.x][p.y];
   if (g.hasGold > 1) g.hasGold--;
   else if (g.hasGold === 1) {
-    const below = p.y >= TH - 1 ? STEEL : map[p.x][p.y + 1].base;
-    if (c.base === EMPTY && c.act === GUARD &&
-        (p.y >= TH - 1 || below === BRICK || below === STEEL || below === LADDER)) {
+    if (c.base === EMPTY) {
       c.base = GOLD;
       terrainDirty = true;
-      g.hasGold = -1;                                  /* one-crossing cooldown */
-    }
-  } else if (g.hasGold < 0) g.hasGold++;
-}
-
-function processShake() {
-  for (const g of guards) {
-    if (g.action !== A_IN_HOLE) continue;
-    g.anim = "shake";
-    if (++g.shakeTick >= SHAKE_TICKS) {
-      g.action = A_CLIMB_OUT;
-      g.holePos = { x: g.pos.x, y: g.pos.y };
-      g.anim = "climb";
-      g.dist = 0;
+      g.hasGold = 0;
     }
   }
 }
 
-const bornBag = [];
-function bornX() {
-  if (!bornBag.length) {
-    for (let i = 0; i < TW; i++) bornBag.push(i);
-    for (let i = bornBag.length - 1; i > 0; i--) {
-      const j = (Math.random() * (i + 1)) | 0;
-      const t = bornBag[i]; bornBag[i] = bornBag[j]; bornBag[j] = t;
-    }
-  }
-  return bornBag.pop();
-}
+/* The original has no random number generator.  Everything that looks random
+   - which column a buried guard comes back in, how long a guard carries gold
+   - is read off one byte that advances by one every single tick and wraps at
+   28 (CODE 1 @0x5604).  Reproducing that exactly matters, because the
+   respawn search consumes it as it scans, so the counter and the board
+   geometry together decide where guards reappear. */
+function luck() { return luckCounter; }
+function spendLuck() { luckCounter = (luckCounter + 1) % TW; }
 
+/* Start at row 1 - never row 0 - and take the counter as a column.  Accept
+   the first cell whose terrain is bare; ladders, ropes, gold, false bricks
+   and open holes are all refused.  Every refusal spends the counter, and when
+   it wraps the search drops to the next row down (CODE 1 @0x5730). */
 function guardReborn(g) {
   leaveTile(g.pos.x, g.pos.y);
-  let bx = 0, by = 1, found = false;
-  for (by = 1; by < TH && !found; by++) {
-    for (let k = 0; k < TW; k++) {
-      const cx = bornX(), c = map[cx][by];
-      if (c.act === EMPTY && c.base !== GOLD && c.base !== BRICK) { bx = cx; found = true; break; }
-    }
+  let by = 1, bx = luck();
+  for (let guard = 0; guard < TW * TH; guard++) {
+    if (by >= TH) { by = 1; break; }
+    if (map[bx][by].base === EMPTY) break;
+    spendLuck();
+    bx = luck();
+    if (bx === 0) by++;
   }
-  by = found ? by - 1 : 1;
+  if (by >= TH) { by = 1; bx = luck(); }
   g.pos = { x: bx, y: by, xOffset: 0, yOffset: 0 };
   g.action = A_REBORN;
   g.anim = "born";
   g.bornTick = 0;
   g.hasGold = 0;
+  g.shakeTick = 0;
   g.dist = 0;
   map[bx][by].act = GUARD;
   sfx("born");
@@ -3095,11 +1894,11 @@ function processBorn() {
   for (const g of guards) {
     if (g.action !== A_REBORN) continue;
     g.anim = "born";
+    /* No death check here: materialising on top of the runner is survivable
+       in the original, which only kills on a guard's own completed move. */
     if (++g.bornTick >= BORN_TICKS) {
       g.action = A_FALL;
       g.anim = "fall";
-      if (map[g.pos.x][g.pos.y].act === RUNNER ||
-          (runner.pos.x === g.pos.x && runner.pos.y === g.pos.y)) killRunner();
     }
   }
 }
@@ -3112,21 +1911,28 @@ let scale = 3;      /* CSS px per art pixel, fractional */
 let PX = 1;         /* device px per art pixel, fractional */
 const CHROME = 8;   /* #wrap border (2px) + padding (2px), both sides */
 
+/* Which crumble mask to show `elapsed` into a window of `span` ticks: 0 for
+   the least eroded, MASKS.length-1 for the most, spread evenly and clamped. */
+function maskStage(elapsed, span) {
+  const i = Math.floor(elapsed * MASKS.length / span);
+  return Math.max(0, Math.min(MASKS.length - 1, i));
+}
+
 function tileSprite(x, y) {
   const c = map[x][y];
   switch (c.base) {
     case BRICK: {
-      if (digging && digging.x === x && digging.y === y) {
-        const mi = Math.floor(digging.tick / 3);
-        return mi < 3 ? SP["brickMask" + mi] : null;
-      }
+      /* The crumble runs the masks forward across the whole dig and the refill
+         runs the same masks backward across the warning, so the two read as one
+         animation played either way.  Both derive the stage from MASKS.length,
+         so adding a mask or retiming the dig needs no arithmetic here. */
+      if (digging && digging.x === x && digging.y === y)
+        return SP["brickMask" + maskStage(digging.tick - 1, DIG_TICKS)];
       for (const h of holes) {
         if (h.x !== x || h.y !== y) continue;
-        const k = h.t - (HOLE_TICKS - HOLE_WARN);
-        if (k < 0) return null;
-        if (k < 8) return SP.brickMask2;
-        if (k < 16) return SP.brickMask1;
-        return SP.brickMask0;
+        const left = HOLE_TICKS - h.t;
+        if (left > HOLE_WARN) return null;                    /* wide open */
+        return SP["brickMask" + maskStage(left - 1, HOLE_WARN)];
       }
       return SP.brick;
     }
@@ -3135,7 +1941,6 @@ function tileSprite(x, y) {
     case ROPE:    return SP.rope;
     case GOLD:    return SP.gold;
     case TRAP:    return c.trapSeen ? SP.trapOpen : SP.brick;
-    case HLADDER: return null;      /* not revealed yet */
     default:      return null;
   }
 }
@@ -3175,10 +1980,18 @@ function actorSprite(a, isGuard) {
   switch (a.anim) {
     case "run":   return SP[pre + RUN_CYCLE[Math.floor(a.dist / 10) % 4] + flip];
     case "hang":  return SP[pre + HANG_CYCLE[Math.floor(a.dist / 10) % 4] + flip];
-    case "climb": return SP[pre + "climb" + (Math.floor(a.dist / 11) % 2 ? "_L" : "")];
+    /* Half a tile per flip.  The divisor has to divide the 40-unit tile or the
+       mirror lands somewhere different on every tile climbed and reads as a
+       jitter rather than a gait. */
+    case "climb": return SP[pre + "climb" + (Math.floor(a.dist / (LH / 2)) % 2 ? "_L" : "")];
     case "fall":  return SP[pre + "fall" + flip];
     case "shoot": {
-      const lit = digging && digging.tick < DIG_TICKS - 1 && (digging.tick % 2) === 0;
+      /* One flash per crumble stage rather than per tick: at this tick rate an
+         every-other-tick strobe is a buzz, and pulsing with the damage ties the
+         muzzle to the brick coming apart. */
+      const span = DIG_TICKS / MASKS.length;
+      const lit = digging && digging.tick <= DIG_TICKS
+                  && ((digging.tick - 1) % span) < span / 2;
       return SP[pre + (lit ? "shoot" : "shootDim") + flip];
     }
     case "shake": return SP[pre + SHAKE_CYCLE[Math.floor(a.shakeTick / 4) % 4]];
@@ -3197,7 +2010,10 @@ function actorSprite(a, isGuard) {
 }
 
 function draw() {
-  if (!ctx) return;
+  /* The writeup calls layout() when it lands, which can be before the levels
+     have arrived and built a map - so there is a window where there is a
+     canvas but nothing to put on it. */
+  if (!ctx || !map.length) return;
   if (terrainDirty) drawTerrain();
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.drawImage(terrainCv, 0, 0);
@@ -3221,6 +2037,7 @@ function draw() {
    --margin of clear space at the top, left and right.  The scale is a float,
    so zoom is continuous rather than jumping between integer steps. */
 function layout() {
+  if (!ctx) return;                  /* nothing sized yet; see draw() */
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const m = parseFloat(cs.getPropertyValue("--margin")) || 20;
@@ -3373,7 +2190,9 @@ function blaster(o, ctxOverride, destOverride) {
   const dest = destOverride || master;
   const t = ctxOverride ? 0 : a.currentTime;
 
-  const dur       = o.dur       !== undefined ? o.dur       : 0.52;
+  /* Default the shot to exactly as long as the dig takes, so retuning the
+     tick rate cannot leave the sound finishing before the brick does. */
+  const dur       = o.dur       !== undefined ? o.dur       : DIG_TICKS * TICK_MS / 1000;
   const f0        = o.f0        !== undefined ? o.f0        : 1150;  /* the "zee" */
   const f1        = o.f1        !== undefined ? o.f1        : 190;
   const warbleHz  = o.warbleHz  !== undefined ? o.warbleHz  : 8;     /* the "yoo"s */
@@ -3542,6 +2361,11 @@ function onKeyDown(e) {
     return;
   }
   if (code === "KeyT") { e.preventDefault(); latched = !latched; if (!latched) latchedDir = null; return; }
+  /* `Equal` is the physical =/+ key, so typing `=` and typing Shift-= both
+     land here; Ctrl/Cmd combinations already returned above, so browser zoom
+     is untouched. */
+  if (code === "Minus" || code === "NumpadSubtract") { e.preventDefault(); setSpeed(speedIndex - 1); return; }
+  if (code === "Equal" || code === "NumpadAdd")      { e.preventDefault(); setSpeed(speedIndex + 1); return; }
   if (code === "BracketLeft")  { e.preventDefault(); startLevel(Math.max(0, level - 1)); return; }
   if (code === "BracketRight") { e.preventDefault(); startLevel(Math.min(LEVELS.length - 1, level + 1)); return; }
   if (/^Digit[0-9]$/.test(code)) {
@@ -3683,6 +2507,33 @@ function pollPad() {
    ======================================================================== */
 function updateHud() {
   el("hudLevel").textContent = String(level + 1);
+  el("hudCount").textContent = String(LEVELS.length);
+  el("hudSpeed").textContent = SPEEDS[speedIndex].name;
+}
+
+/* Everything that names the set comes from the level file, so this file is
+   set-agnostic: point ?levels= somewhere else and the tab title, the win
+   headline and the win sentence all follow it. */
+function applySetStrings() {
+  document.title = LEVEL_TITLE;
+  el("winTitle").textContent = "All " + LEVELS.length + " levels complete";
+  el("winNote").textContent = LEVEL_WIN;
+}
+
+/* `-` and `+` step through SPEEDS, clamped at the ends rather than wrapping:
+   with only three settings, wrapping would turn one extra press of `+` into a
+   jump from HI all the way down to LOW, and the indicator is the only
+   feedback there is. */
+function setSpeed(i) {
+  const j = Math.max(0, Math.min(SPEEDS.length - 1, i));
+  if (j === speedIndex) return;
+  speedIndex = j;
+  TICK_MS = BASE_TICK_MS / SPEEDS[speedIndex].rate;
+  /* the accumulator is in milliseconds, so it is rate-independent - but it
+     can be holding almost a whole OLD tick, which would drain into two ticks
+     back to back on the way up.  Dropping it makes the change crisp. */
+  acc = 0;
+  updateHud();
 }
 
 /* Every level entry starts frozen: page load, advancing a level, R, [ ], a
@@ -3715,13 +2566,14 @@ function doWin() {
 function tick() {
   if (state === "ready") return;      /* frozen - study the board in safety */
   if (state === "run") {
-    if (goldComplete && runner.pos.y === 0 && Math.abs(runner.pos.yOffset) <= H4) {
+    /* The original wants you dead centre in the top row, not merely near it */
+    if (goldComplete && runner.pos.y === 0 && runner.pos.yOffset === 0) {
       levelPassed();
       return;
     }
+    spendLuck();
     if (digging) processDig(); else moveRunner();
     if (state === "run") moveGuards();
-    processShake();
     processHoles();
     processBorn();
   } else if (state === "dead") {
@@ -3790,27 +2642,159 @@ function spriteSheet() {
 /* ========================================================================
    Boot
    ======================================================================== */
-function validateLevels() {
-  if (LEVELS.length !== 86) throw Error("expected 86 levels, got " + LEVELS.length);
+function validateLevels(url) {
   LEVELS.forEach(function (s, i) {
-    if (s.length !== TW * TH) throw Error("level " + (i + 1) + " is " + s.length + " chars");
+    const where = url + " level " + (i + 1);
+    if (s.length !== TW * TH) throw Error(where + " is " + s.length + " chars");
     let p = 0, g = 0, gold = 0;
     for (const ch of s) {
-      if (!(ch in CHAR2TILE)) throw Error("level " + (i + 1) + ': bad char "' + ch + '"');
+      if (!(ch in CHAR2TILE)) throw Error(where + ': bad char "' + ch + '"');
       if (ch === "P") p++; else if (ch === "G") g++; else if (ch === "$") gold++;
     }
-    if (p !== 1) throw Error("level " + (i + 1) + " has " + p + " players");
-    if (g > 5) throw Error("level " + (i + 1) + " has " + g + " guards");
-    if (gold < 1) throw Error("level " + (i + 1) + " has no gold");
+    if (p !== 1) throw Error(where + " has " + p + " players");
+    if (g > 5) throw Error(where + " has " + g + " guards");
+    if (gold < 1) throw Error(where + " has no gold");
   });
-  console.log("levels ok: 86 levels, 28x16, exactly one player each, <=5 guards, gold in every level");
+  console.log("levels ok: " + LEVELS.length + " levels from " + url + ", " +
+              TW + "x" + TH + ", exactly one player each, <=5 guards, " +
+              "gold in every level");
 }
 
-function init() {
-  buildAtlas();
-  validateLevels();
+/* fetch() rejects opaquely for both of the causes that actually come up, so
+   name them.  A file:// page cannot fetch anything at all, which is by far the
+   most likely way to land here, so that one gets the remedy spelled out. */
+async function fetchText(url) {
+  let res;
+  try {
+    res = await fetch(url, { cache: "no-cache" });
+  } catch (err) {
+    throw Error("could not fetch " + url + ": " + err.message + "\n\n" +
+      (location.protocol === "file:"
+        ? "This page was opened with file://, and a file:// page is not " +
+          "allowed to fetch anything.  Serve the folder over HTTP instead:\n" +
+          "    python3 -m http.server\nthen open http://localhost:8000/"
+        : "If that URL is on another site, that site has to send CORS " +
+          "headers (Access-Control-Allow-Origin)."));
+  }
+  if (!res.ok)
+    throw Error("fetching " + url + " returned HTTP " + res.status +
+                " " + res.statusText);
+  return res.text();
+}
 
-  if (location.search.indexOf("spritesheet") >= 0) { spriteSheet(); return; }
+const MD_BEGIN = "<!-- BEGIN HERE -->", MD_END = "<!-- END HERE -->";
+
+/* Only the text between the markers is shown, so a Markdown file can carry a
+   title, a play link and a banner that belong on GitHub but not here.  Both
+   markers are optional: with no BEGIN HERE the writeup starts at the top of
+   the file, and with no END HERE it runs to the bottom - so ?readme= can point
+   at any plain Markdown file.  Two of either is still an error, since which
+   one wins would only ever be a guess. */
+function extractWriteup(text, url) {
+  const nb = text.split(MD_BEGIN).length - 1;
+  const ne = text.split(MD_END).length - 1;
+  if (nb > 1) throw Error(url + " has " + nb + " " + MD_BEGIN +
+                          " markers; expected at most one");
+  if (ne > 1) throw Error(url + " has " + ne + " " + MD_END +
+                          " markers; expected at most one");
+  const a = nb ? text.indexOf(MD_BEGIN) + MD_BEGIN.length : 0;
+  const b = ne ? text.indexOf(MD_END) : text.length;
+  if (b < a) throw Error(url + " has " + MD_END + " before " + MD_BEGIN);
+  const md = text.slice(a, b).trim();
+  if (!md) throw Error(url + " has no text to show");
+  return md;
+}
+
+/* The CDN scripts are deferred, so they run after this inline script but
+   before DOMContentLoaded - which is therefore the event to wait on.  Note
+   that readyState is already "interactive" while a deferred script is still
+   pending, so only "complete" means DOMContentLoaded has been and gone. */
+async function whenRenderer() {
+  if (!window.marked || !window.DOMPurify) {
+    if (document.readyState !== "complete")
+      await new Promise(function (r) {
+        document.addEventListener("DOMContentLoaded", r, { once: true });
+      });
+  }
+  if (!window.marked || !window.DOMPurify)
+    throw Error("the Markdown renderer failed to load from the CDN " +
+                "(marked and DOMPurify)");
+}
+
+/* A relative link in Markdown means "relative to the Markdown", but the
+   browser would resolve it against this page.  Identical for a writeup that
+   sits beside index.html, wrong for any ?readme= that does not. */
+function resolveRelative(root, base) {
+  root.querySelectorAll("img[src], a[href]").forEach(function (n) {
+    const attr = n.tagName === "IMG" ? "src" : "href";
+    const raw = n.getAttribute(attr);
+    if (!raw || raw[0] === "#" || raw.slice(0, 2) === "//" ||
+        /^[a-z][a-z0-9+.-]*:/i.test(raw)) return;
+    try { n.setAttribute(attr, new URL(raw, base).href); } catch (err) { /* leave it */ }
+  });
+}
+
+/* Sanitized because ?readme= takes any URL, so without it a crafted link to
+   this page could run someone else's script on this origin. */
+async function showWriteup(url) {
+  const text = await fetchText(url);
+  await whenRenderer();
+  const about = el("about");
+  about.innerHTML = DOMPurify.sanitize(marked.parse(extractWriteup(text, url)));
+  resolveRelative(about, new URL(url, location.href).href);
+  layout();     /* the writeup can add a scrollbar, which changes the fit */
+}
+
+/* Two failure reports, and the difference between them is the point: the
+   writeup is decoration, so losing it costs you the prose and nothing else,
+   while losing the levels means there is no game to show.  Both build their
+   message with textContent, never innerHTML - it quotes a URL that came from
+   the query string. */
+function report(target, heading, err) {
+  target.textContent = "";
+  const h = document.createElement("h2");
+  h.textContent = heading;
+  const p = document.createElement("pre");
+  p.textContent = String((err && err.message) || err);
+  target.appendChild(h);
+  target.appendChild(p);
+}
+
+let writeupFailure = null;
+
+function writeupFailed(err) {
+  writeupFailure = err;
+  console.error(err);
+  if (document.body.classList.contains("loadfail")) return;
+  report(el("about"), "The writeup could not be loaded", err);
+  layout();
+}
+
+/* No levels, no game: take the board away rather than leave an empty frame,
+   and let the message have the page.  The writeup, if it loaded, stays below -
+   between them they still explain what this page is. */
+function fatal(err) {
+  document.body.classList.add("loadfail");
+  el("stage").style.display = "none";
+  el("about").style.width = "";
+  if (writeupFailure) el("about").textContent = "";
+  const box = el("loadfail");
+  box.classList.remove("hide");
+  console.error(err);
+  report(box, "The game could not start", err);
+}
+
+async function init() {
+  buildAtlas();
+
+  /* The sprite sheet is a pure art dump, so it has to work with no level file
+     at all - which means before anything is fetched. */
+  if (QS.has("spritesheet")) { spriteSheet(); return; }
+
+  /* Both requests go out now, in parallel.  Only the levels gate the start;
+     the writeup arrives whenever it arrives. */
+  const levelsReq = fetchText(LEVELS_URL);
+  const writeupDone = showWriteup(README_URL).catch(writeupFailed);
 
   cv = el("cv");
   ctx = cv.getContext("2d");
@@ -3819,6 +2803,13 @@ function init() {
 
   /* single source of truth for the frame colour: the ladder's own shade */
   document.documentElement.style.setProperty("--ladder-shade", PAL_TERRAIN.h);
+
+  const set = parseLevelFile(await levelsReq, LEVELS_URL);
+  LEVELS = set.boards;
+  LEVEL_TITLE = set.title;
+  LEVEL_WIN = set.win;
+  validateLevels(LEVELS_URL);
+  applySetStrings();
 
   startLevel(0);      /* builds the map, and leaves the board frozen */
   layout();           /* needs the map to exist, since it draws */
@@ -3837,8 +2828,9 @@ function init() {
   document.body.addEventListener("pointerdown", function () { audio(); });
 
   /* Taps are replayed as the corresponding keydown/keyup, so pause, restart,
-     level change and mute keep exactly one implementation each.  pointerdown
-     rather than click, so it responds without the tap delay. */
+     level change, speed and mute keep exactly one implementation each - and
+     `-` and `+` are separate targets, the same way `[` and `]` are.
+     pointerdown rather than click, so it responds without the tap delay. */
   el("keys").addEventListener("pointerdown", function (e) {
     const t = e.target.closest("[data-tap]");
     if (!t) return;
@@ -3857,9 +2849,13 @@ function init() {
   });
 
   requestAnimationFrame(frame);
+
+  await writeupDone;
 }
 
-init();
+/* One handler for every fatal path: the fetch, the JSON, the board geometry
+   and the content checks all land here. */
+init().catch(fatal);
 </script>
 </body>
 </html>

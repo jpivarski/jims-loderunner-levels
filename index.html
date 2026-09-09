@@ -312,7 +312,7 @@
   <div id="hud">
     <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / <b id="hudCount">-</b></span></span>
     <span id="tagline" class="cue">loading levels...</span>
-    <span>SPEED <span class="nw"><b id="hudSpeed">MID</b></span></span>
+    <span>SPEED <span class="nw"><b id="hudSpeed">mid</b></span></span>
     <span>SOUND <span class="nw"><b id="hudSound">on</b></span></span>
   </div>
 
@@ -346,14 +346,14 @@ const XMOVE = 8, YMOVE = 8;
    down.  The three menu settings are delays of 2, 3 and 4 retraces, so what
    the setting changes is the tick RATE and nothing else - every count below,
    and every count in ticks anywhere in this file, is the same at any speed.
-   `-` and `+` pick between three of them here on the same principle.  HI is
-   the original's fastest setting, LOW is half of it, and MID - the default -
+   `-` and `+` pick between three of them here on the same principle.  High is
+   the original's fastest setting, low is half of it, and mid - the default -
    is the average of the two.  (The original's middle setting was 2/3, not
    3/4, if you ever want to match it exactly.) */
 const BASE_TICK_MS = 2000 / 60.15;         /* HI: 60.15/2 ticks per second */
-const SPEEDS = [{ name: "LOW", rate: 0.5 },
-                { name: "MID", rate: 0.75 },
-                { name: "HI",  rate: 1 }];
+const SPEEDS = [{ name: "low", rate: 0.5 },
+                { name: "mid", rate: 0.75 },
+                { name: "high",  rate: 1 }];
 let speedIndex = 1;                        /* MID */
 let TICK_MS = BASE_TICK_MS / SPEEDS[speedIndex].rate;
 

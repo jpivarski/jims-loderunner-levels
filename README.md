@@ -4,7 +4,7 @@
 
 <a href="https://jpivarski.github.io/jims-loderunner-levels/"><img src="img/level-1.png" alt="Click here to play!" width="500"></a>
 
-<!-- COPY HERE -->
+<!-- BEGIN HERE -->
 
 ## I didn't invent this game!
 
@@ -33,3 +33,5 @@ This website has none of the classic levels, only the ones that I designed, and 
 Game rules and algorithms are not copyrightable.
 
 "Lode Runner" is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.
+
+<!-- END HERE -->

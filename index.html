@@ -2,7 +2,15 @@
 <html lang="en">
 <!--
   ===========================================================================
-  Jim's Levels  -  86 Lode Runner levels I designed when I was 10 years old.
+  Jim's Levels  -  a Lode Runner engine that plays whatever level set it is
+  pointed at.  Neither the levels nor the writeup below the board live in this
+  file; both are fetched at run time:
+
+      ?levels=URL   the level set, as JSON     (default levels.json, the 86
+                                                levels I designed when I was 10)
+      ?readme=URL   the writeup, as Markdown   (default README.md)
+
+  Both accept absolute or relative URLs.
 
   Code, pixel art, sound synthesis and level designs (c) 2026 Jim Pivarski.
   Released under the BSD 3-Clause License; see LICENSE.
@@ -16,7 +24,7 @@
 
   "Lode Runner" is a trademark of Tozai Games. This project is unaffiliated
   with and unendorsed by Tozai Games or any other rights holder, and contains
-  none of the commercial level data - only my own 86 levels.
+  none of the commercial level data - in fact no level data at all.
 
   Behavioral reference consulted while implementing (read, never copied; it
   carries no license of any kind):
@@ -125,7 +133,11 @@
      is what you need in order to judge whether a ladder reaches the top. */
   #wrap { position: relative; width: 100%;
           border: 2px solid var(--ladder-shade); padding: 2px; }
+  /* aspect-ratio holds the board's box open for the moment between first
+     paint and the levels arriving; layout() then sets an explicit height,
+     which wins. */
   canvas { display: block; width: 100%; background: #000;
+           aspect-ratio: 504 / 272;
            image-rendering: pixelated; image-rendering: crisp-edges; }
 
   #hud { display: flex; width: 100%; gap: 1em; padding-top: 6px;
@@ -159,11 +171,31 @@
                  animation: blink 1.1s infinite steps(1); }
   @keyframes blink { 50% { opacity: .25 } }
 
-  /* ---- the writeup, injected from README.md by tools/readme_to_html.py ---- */
+  /* Shown in place of the board when the level file cannot be loaded.  It has
+     to be its own element rather than borrowing #about: the writeup arrives
+     independently, and whichever of the two landed second would erase the
+     other. */
+  #loadfail { width: 100%; max-width: 46em; line-height: 1.7; color: var(--dim);
+              margin: calc(var(--margin) * 3) auto calc(var(--margin) * 2);
+              padding: 0 var(--margin); }
+  #loadfail.hide { display: none; }
+  #loadfail h2 { color: var(--cyan); font-weight: normal; font-size: 1.25em;
+                 line-height: 1.3; margin: 0 0 .8em; }
+  #loadfail pre { background: var(--panel); border: 1px solid var(--rule);
+                  border-radius: 4px; padding: .8em 1em; color: var(--warm);
+                  white-space: pre-wrap; overflow-x: auto; }
+  /* layout() normally pins #about to the board's width; with no board there is
+     nothing to pin it to, so fall back to the same measure as the message. */
+  body.loadfail #about { max-width: 46em; padding: var(--margin) var(--margin) 0; }
+
+  /* ---- the writeup, rendered from Markdown at load time ---- */
   #about { width: 100%; line-height: 1.7; color: var(--dim);
            margin: calc(var(--margin) * 2) 0 calc(var(--margin) * 2);
            padding-top: var(--margin);
            border-top: 2px solid var(--ladder-shade); }
+  /* ...but that border-top would otherwise draw a stray rule under the board
+     on a page whose writeup has not arrived yet, or has none at all */
+  #about:empty { display: none; }
   #about > :first-child { margin-top: 0; }
   #about h1, #about h2, #about h3, #about h4 {
            color: var(--cyan); font-weight: normal; line-height: 1.3;
@@ -228,6 +260,19 @@
   #sheet .row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
   #sheet figure { margin: 0; text-align: center; color: var(--faint); font-size: 11px; }
 </style>
+
+<!-- The writeup is Markdown now, fetched and rendered here instead of being
+     pre-rendered into this file by a script.  Pinned by version and by SRI
+     hash; marked publishes no .min.js, so this is the UMD build that is
+     actually in the npm package.  `defer` so that the game's own script (at
+     the end of <body>) runs first and gets the level fetch started without
+     waiting on the CDN. -->
+<script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.12/lib/marked.umd.js"
+        integrity="sha384-TuL/7aNYXEDWjlcHi2CR+Een2A5pigrtJ97Tmx3WG69mx5kCSp8yKHRISW9xSmgq"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.4.15/dist/purify.min.js"
+        integrity="sha384-uUMu9JDY09vBzRf9SPcK2VgUj+W/70J6Soc+Dded5P474ElQ63iv9j5N3DE7Kp3N"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body tabindex="0">
 
@@ -241,7 +286,8 @@
   <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> <i>restart</i></span>
   <span class="cmd"><span class="pair"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
        class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd></span> <i>level</i></span>
-  <span class="cmd tap" data-tap="KeyN" role="button" aria-label="switch level set"><kbd>N</kbd> <i>levels</i></span>
+  <span class="cmd"><span class="pair"><kbd class="tap" data-tap="Minus" role="button" aria-label="slower">-</kbd><kbd
+       class="tap" data-tap="Equal" role="button" aria-label="faster">+</kbd></span> <i>speed</i></span>
   <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> <i>mute</i></span></span>
 </div>
 
@@ -257,39 +303,25 @@
 
     <div id="win" class="overlay hide">
       <h1>CONGRATULATIONS!</h1>
-      <h2>All 86 levels complete</h2>
-      <p>You finished every level I designed as a 10-year-old.</p>
+      <h2 id="winTitle"></h2>
+      <p id="winNote"></p>
       <p class="go">press <kbd>R</kbd> to play again from level 1</p>
     </div>
   </div>
 
   <div id="hud">
-    <span><b id="hudSet">JIM</b> LEVEL <span class="nw"><b id="hudLevel">1</b> / <b id="hudCount">86</b></span></span>
-    <span id="tagline">Collect every chest, then climb out of the top.</span>
+    <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / <b id="hudCount">-</b></span></span>
+    <span id="tagline" class="cue">loading levels...</span>
+    <span>SPEED <span class="nw"><b id="hudSpeed">MID</b></span></span>
     <span>SOUND <span class="nw"><b id="hudSound">on</b></span></span>
   </div>
 
 </div>
 </div>
 
-<section id="about">
-<!-- README:BEGIN -->
-<h2>I didn't invent this game!</h2>
-<p>Just to be clear: this is <a href="https://en.wikipedia.org/wiki/Lode_Runner">Lode Runner</a>, a hit in 1983 that featured a level editor, spawned a community sharing user-designed levels, <a href="https://cgwmuseum.org/galleries/index.php?year=1985&amp;pub=2&amp;id=21">magazine contests</a>, <a href="https://ndlsearch.ndl.go.jp/books/R100000002-I000001903930">books of levels to copy</a>, and <a href="https://note.com/cyborgmsx/n/n9c87c5cbef81">competitions</a>.</p>
-<p><strong>What you see above are <em>my</em> levels, which I made when I was 10.</strong> I was lucky enough to find my original floppy disks and have access to an old-enough computer, so I got the data by converting the game files to hexidecimal, photographing it, interpreting the hexidecimal with OCR, and then fixing the transcription errors. Fortunately, the files are very small.</p>
-<img src="img/example-hexidecimal.jpg" alt="Old Macintosh screen with hexidecimal of my game level files" width="500">
-<h2>Lode Runner is awesome</h2>
-<p>It's like chess with reaction time. The architecture of a level forces you to plan how you're going to get all of the golds without getting eaten by the guards, and then implement it. You can't jump, and although you can shoot, you don't shoot the guards. You shoot the floor: to jump through it, to (temporarily) trap a guard, or to dig out some deeply buried gold. But think carefully, because you need a place to stand while digging.</p>
-<p>The guards are idiots. They have an algorithm, but it only sometimes involves chasing you. Nevertheless, you need to learn their algorithm because they can carry gold, and you need to get it from them. In some levels, the gold is hidden in places that you can't get to, but you can kill the guards (by burying them and letting the ground swallow them up) to make them respawn, sometimes in the places where you need them.</p>
-<p>Also, you fall faster than they do. That can be a part of the puzzle, too.</p>
-<p>There's a lot to think about!</p>
-<h2>Who owns Lode Runner? Is this site legal?</h2>
-<p>The original game was created by Douglas Smith and published by Brøderbund in 1983 (<a href="https://www.filfre.net/2020/12/lode-runner/">full story</a>). The version I played was ported to the Apple Macintosh in 1984 by Glenn Axworthy. The copyright is now owned by <a href="https://global.tozaigames.com/">Tozai Games</a>, who created a new version, <a href="https://global.tozaigames.com/legacy/">Lode Runner Legacy</a> (<a href="https://store.steampowered.com/app/628660/Lode_Runner_Legacy/">Steam</a>), which includes the classic levels.</p>
-<p>This website has none of the classic levels, only the ones that I designed, and the game engine is rewritten from scratch. It was inspired by <a href="https://github.com/SimonHung/LodeRunner_TotalRecall">LodeRunner_TotalRecall</a> by Simon Hung, which has no license, but I didn't copy any code from it. The pixel art and sounds on this site are also original.</p>
-<p>Game rules and algorithms are not copyrightable.</p>
-<p>&quot;Lode Runner&quot; is a trademark of Tozai Games. This project is unaffiliated with and unendorsed by Tozai Games or any other rights holder.</p>
-<!-- README:END -->
-</section>
+<div id="loadfail" class="hide"></div>
+
+<section id="about"></section>
 
 <script>
 "use strict";
@@ -311,11 +343,19 @@ const XMOVE = 8, YMOVE = 8;
 
 /* The original is paced by a VBL task: it arms a counter with the Options
    menu's speed setting and spins until the 60.15 Hz retrace has counted it
-   down.  The three menu settings are delays of 2, 3 and 4 retraces - so the
-   fastest, which is the only sane way to play, is 60.15/2 ticks per second.
-   Nothing else in the game varies with the setting, so every count below is
-   the same at any speed. */
-const FPS = 60.15 / 2, TICK_MS = 1000 / FPS;
+   down.  The three menu settings are delays of 2, 3 and 4 retraces, so what
+   the setting changes is the tick RATE and nothing else - every count below,
+   and every count in ticks anywhere in this file, is the same at any speed.
+   `-` and `+` pick between three of them here on the same principle.  HI is
+   the original's fastest setting, LOW is half of it, and MID - the default -
+   is the average of the two.  (The original's middle setting was 2/3, not
+   3/4, if you ever want to match it exactly.) */
+const BASE_TICK_MS = 2000 / 60.15;         /* HI: 60.15/2 ticks per second */
+const SPEEDS = [{ name: "LOW", rate: 0.5 },
+                { name: "MID", rate: 0.75 },
+                { name: "HI",  rate: 1 }];
+let speedIndex = 1;                        /* MID */
+let TICK_MS = BASE_TICK_MS / SPEEDS[speedIndex].rate;
 
 /* Shooting is the one place this deliberately departs from the original, which
    took 24 ticks and - worse - re-validated the shot every tick and abandoned
@@ -914,11 +954,21 @@ function buildAtlas() {
 }
 
 /* ========================================================================
-   Level data.  Two sets, both decoded from the original nibble-packed level
-   files in original-files/ (Apple II style level disk: a 262-byte header,
-   then 224 bytes per level, 448 nibbles = 28x16 tiles row-major, low nibble
-   = left tile, high nibble = right tile; the first all-zero level ends the
-   set, which is how one file holds 86 and the other 30).
+   Level data.  The levels are not in this file: they are fetched from the
+   JSON file named by ?levels=URL, default levels.json, absolute or relative.
+
+       {"title": "Jim's Levels",
+        "win":   "the sentence the win overlay ends with",
+        "levels": [
+           {"board": "
+       ............................
+              ... 16 rows of exactly 28 characters ...
+       ............................
+       "},
+           {"board": "
+       ...
+       "}
+       ]}
 
        .  empty          X  trap (false brick, drawn as #)
        #  brick          S  hidden ladder (appears when all gold is taken)
@@ -926,2006 +976,104 @@ function buildAtlas() {
        H  ladder         G  guard
        -  rope           P  player
 
-   Two cells in level 16 held nibble values 13 and 14, which are not valid
-   tile types; both were isolated cells in open space and are mapped to
-   empty.  Every other level re-encodes byte-identically to the original.
+   A board is written as 16 real lines because that is the only way to see it,
+   which costs one relaxation of JSON (escapeControlsInStrings) and one
+   flattening step (flattenBoard) - the engine below still reads one
+   448-character string per level and does not know the difference.
+
+   `title` becomes the document title, and `win` and the level count fill the
+   win overlay, so nothing in this file names any particular set.
+
+   Both bundled sets were decoded from the nibble-packed original level files
+   in original-files/ (Apple II style level disk: a 262-byte header, then 224
+   bytes per level, 448 nibbles = 28x16 tiles row-major, low nibble = left
+   tile, high nibble = right tile; the first all-zero level ends the set,
+   which is how one file holds 86 and the other 30).  Two cells in Jim's level
+   16 held nibble values 13 and 14, which are not valid tile types; both were
+   isolated cells in open space and are mapped to empty.  Every other level
+   re-encodes byte-identically to the original.
    ======================================================================== */
-const JIM_LEVELS = [
-/*   1 */
-  "...........P................" +
-  ".....##....S...############." +
-  "....#G.##.SSS..#$$$$$$$$$H#." +
-  "....#G$$$SSSSS.##########H#." +
-  "....#H###.SSS...........#H#." +
-  "....#H#....S............#H#." +
-  "....#H#...###########...#H#." +
-  "....#H#..#$$$$$$$$$$$#.#$H#." +
-  "....#H###########H#####.$H#." +
-  "....#H$$$$$$$$$$$H$$$$$$$H#." +
-  "....#H#####H#####H#####HHH.." +
-  "....#H#...#H#...#H#...#H#H.." +
-  "...##H#..##H#..##H#..##H#H.." +
-  "..#$$H#.#$$H#.#$$H#.#$$H#H.." +
-  "..#####.#####.#####.#####H.." +
-  ".........................H..",
-/*   2 */
-  ".......................S...." +
-  "....$$.....G...........S.$.P" +
-  "#######H###X###HHHHHHHHH====" +
-  "HHHHH.HH....HHHH......HH...H" +
-  "HH...X.H......$H......HHH.HH" +
-  "HH$..X#########H$$.....HHHHH" +
-  "H####X.........###$.$..HHHHH" +
-  "HH...$............###$.$.HHH" +
-  "HH...$......#$$#.....###$HHH" +
-  "H.....$....######........H.H" +
-  "H..##X###..##XX##.......$H.H" +
-  "H...........#XX#.........H.H" +
-  "H....$..................$H.H" +
-  "H####X#####################H" +
-  "H$$$#X$$$$$$$$$$$$$$$$$$$$$H" +
-  "############################",
-/*   3 */
-  "S..........................S" +
-  "S..........................S" +
-  "S--------------------------S" +
-  "H............P#G...........H" +
-  "H..........$##.##$.........H" +
-  "H.........$#.....#$........H" +
-  "H........$#$.---.$#$.......H" +
-  "H.......$#.###.###.#$......H" +
-  "H......$#...........#$.....H" +
-  "H.....$#.............#$....H" +
-  "H....$#...............#$...H" +
-  "H...$#..#$.$.$.$.$.#...#$..H" +
-  "H..$#...############....#$.H" +
-  "H..#.....................#.H" +
-  "H$$..$$.......$.....$$....$H" +
-  "############################",
-/*   4 */
-  "...-----..$.$..............S" +
-  ".$GH...H#######H...........S" +
-  "=#=H...H.......H......-----S" +
-  "...H...H...$...H...H##.....#" +
-  "#=####X############H........" +
-  ".....$.------..$..GH........" +
-  "..H####......######H........" +
-  "..H................H#######H" +
-  "..H................H.......H" +
-  "..H....$.....$.....H.......H" +
-  "..H#################.......H" +
-  "..H......----------..$.....H" +
-  "..H...H##..........###H....H" +
-  "..H...H...............H....H" +
-  "..H...H....$..P.......H....H" +
-  "############################",
-/*   5 */
-  "S..........................S" +
-  "S..$..........$P........$..S" +
-  "H##########################H" +
-  "H.......$...........$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "H##########################H" +
-  "H.G.....$...........$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "H##########################H" +
-  "H.......$........G..$......H" +
-  "H##########################H" +
-  "H..$..........$.........$..H" +
-  "############################" +
-  "############################",
-/*   6 */
-  "...........................S" +
-  ".$......$.....$.....G...---S" +
-  "H##H##H##H##H##H##H##H##H..H" +
-  "H..H..H..H..H..H..H..H..H..H" +
-  "H..H$.H..H$$H..H.$H..H$.H..H" +
-  "H###########H############..H" +
-  "H.G.........H..............H" +
-  "#####X#####################H" +
-  "#$.##.$...$..$..$..$..$.$.#H" +
-  "#########################X#H" +
-  "........-------------------H" +
-  "....$.H#....$.$..$.........H" +
-  "..H#####..H####H####H......H" +
-  "..H.......H....H....H......H" +
-  "..H.......H....H.P..H......H" +
-  "############################",
-/*   7 */
-  "S....................$G#...." +
-  "S...............########...." +
-  "H------------..............." +
-  "H..$....................$.$." +
-  "H####H..............#######H" +
-  "H####H.....................H" +
-  "H$.P#H......$..............H" +
-  "H####H.....................H" +
-  "H####H........$.......$....H" +
-  "H######H########H###########" +
-  "H.....HH........H..........." +
-  "H....HHH........H..........." +
-  "H...HHH.........H..........." +
-  "H...HH..........H..........." +
-  "H...H.......G...H..........." +
-  "############################",
-/*   8 */
-  ".........S.................." +
-  ".G.H---H.S........H----H...." +
-  "HHHH.$.H.S........H.$..H...." +
-  "HHHH...H.S........H....H...P" +
-  "H########H###H#####H######HH" +
-  "H#$------H---H-----H-------H" +
-  "H#H......H...H.....H.......H" +
-  "H#H......H...H.....$.......H" +
-  "HGH......H...H.............H" +
-  "H###H######################H" +
-  "H...H......................H" +
-  "H...H------------------$---H" +
-  "H...H..............$...H...H" +
-  "H...H....$.............H...H" +
-  "H...H..................H...H" +
-  "############################",
-/*   9 */
-  "#S##########################" +
-  "#S..............H..........." +
-  "#H----$$$$$$----H-------####" +
-  "#H..$########$..H......----$" +
-  "#H.##........##.H.....$....#" +
-  ".H..............H..........." +
-  "HH..............H..........." +
-  "H........G...$..H..........." +
-  "H####################H#H##HX" +
-  "HHHHHHHH-------------H#H##H#" +
-  ".H.....H.............H.H..H." +
-  ".H..$..H....$...$..P.H.H$$H." +
-  "XH#####H#############H####HX" +
-  ".H.....H.............H....H." +
-  ".H.....H..$..........H....H." +
-  "############################",
-/*  10 */
-  "............S.S............." +
-  "$......$....SPS....$.......$" +
-  "H######H#####H#####H#######H" +
-  "H......H.....S.....H.......H" +
-  "H--.G..H.....S.....H....---H" +
-  "H.###########H############.H" +
-  "H---...$.....H.....$...----H" +
-  "H..####H###########H#####..H" +
-  "H----..H.....$....GH..-----H" +
-  "H...#########H##########...H" +
-  "H-----.$..G..H.....$.------H" +
-  "H....##H###########H###....H" +
-  "H------H.....$.....H-------H" +
-  "H.....#######H########.....H" +
-  "H............H.............H" +
-  "############################",
-/*  11 */
-  "#P#...#...$...$....######S##" +
-  "#.#####H##########H...$.#S#$" +
-  "#..$H.$H#H.$..$.H########S#H" +
-  "#H##H#HH#H######H#H.$..H#S#H" +
-  "$H$#H#HH#H#.$GH#H#H####H#S#H" +
-  "####H####H####H#H#H#H.#H#S#H" +
-  "#...H$H##H$.H#H#H#H#H.#H#S#H" +
-  "#.####H#.H##H#H#H#H#H.#H#S#H" +
-  "#....#H#.H##H#H#H#H#H.#H#S#H" +
-  "#..G.#H#$H##H#H#H#H#H.#H#S#H" +
-  "######H##H##H#H#H#H#H.#H$S$H" +
-  ".#H$..H$#H##H#H#H#H#H.######" +
-  ".#H######H##H#H#H.H#H......#" +
-  ".#H..$$..H##H#H#####H#H###.#" +
-  ".########H##H$H..$..H#H#H#H#" +
-  ".........H$#############HGHG",
-/*  12 */
-  ".--P.$----------.G..-------S" +
-  "H.$###....H....$####$......H" +
-  "H.####....H...$##..##$.....H" +
-  "H...##....H..$##....##.....H" +
-  "H...##....H..##.....##.....H" +
-  "H...##....H.........##.....H" +
-  "H...##....H........$##.....H" +
-  "H...##....H.......$##......H" +
-  "H...##....H......$##.......H" +
-  "H...##....H.....$##........H" +
-  "H...##....H....$##G........H" +
-  "H...##....H...$##.$........H" +
-  "H...##....H..$##...........H" +
-  "H$$$##$$$.H.$##.......--...H" +
-  "H########HH$######X###$H...H" +
-  "H########HH#######X####H###H",
-/*  13 */
-  "........H----H.............." +
-  "-------H..PG..H-----.$.$.$.." +
-  "H......H#$..$#H.....######HH" +
-  "H..####H.#$$#.H####.#....#HH" +
-  "H..#.$#H......H#$.#.#....#HH" +
-  "H..####H......H####.#.$$G#HH" +
-  "H......H.#$$#.H.....######HH" +
-  "H.....-H------H-.....H.....H" +
-  "H....$...$..$...$....H.....H" +
-  "H.$################$.H.....H" +
-  "H$#...$$..$$..$$...#$H.....H" +
-  "H#.################.#H.....H" +
-  "HS.....S.SSS.S.....S.H.....H" +
-  "H.S.S.S..S.S..S.S.S..H.....H" +
-  "H..S.S...SSS...S.S...H.....H" +
-  "############################",
-/*  14 */
-  "....S...................S..." +
-  "....S......$.-----------S.G." +
-  "....S....H#####H........H###" +
-  ".$..S.G..H..$..H...$....H.$." +
-  "####H###################H###" +
-  ".$..H.....$........$....H.$." +
-  "####H###################H###" +
-  ".$..H.$........$........H.$." +
-  "####H###################H###" +
-  ".$..H....G.......G......H.$." +
-  "####H..H############H...H###" +
-  "....H..H############H...H..." +
-  "....H..H####$.######H...H..." +
-  "....H..H############H...H..." +
-  "....H..H....$..P....H...H..." +
-  "############################",
-/*  15 */
-  "H..........................P" +
-  "H......$....$.$......$......" +
-  "HX##################H#H.$.$." +
-  "H...$.....G.........H.H#####" +
-  "HX######H#H...$..$..H.H$...." +
-  "S.......H############H#H####" +
-  "S..$....H............H.H...$" +
-  "S......$H............H.####H" +
-  "H#######H$G.$.$.$....H.$...H" +
-  "H......######=#=#====H.####H" +
-  "H---H.$.$.$..........H.$...H" +
-  "H.$.H=#=#=#H.........H.H####" +
-  "H###H$.$.$.H...H-----H.H...$" +
-  "H...H#=#=#=H...H.$$..H.H####" +
-  "H...H......H...HG....H.H...$" +
-  "############################",
-/*  16 */
-  "...S........................" +
-  "...S-------------..........." +
-  "...H..$.G.$..$...----......." +
-  "...H.###H#######.....---...." +
-  "...H....H...............--.." +
-  "...H....H.................-$" +
-  "...H.......................#" +
-  "...H........................" +
-  "...H......$.....$...$......." +
-  "...H#######################H" +
-  "...H...................H.H.H" +
-  "###S###.....$.$.$.$.$.$HHHHH" +
-  "#..S..#...HS#=#=#=#=#=#H.H.H" +
-  "#..S..#...H............===.H" +
-  "#GGSGG#...H$....$...P..$...H" +
-  "############################",
-/*  17 */
-  "..GG....####S##S####........" +
-  "..XXX..#$G$SS$$SS$.$#.GP...." +
-  ".XXXXX.#H$H$.HH.$H$H#......." +
-  "..XXX...#HH##HH##HH#........" +
-  ".........#H#HHHH#H#........." +
-  "..........##H##H##...XXX...." +
-  "...........#HHHH#...XXXXX..." +
-  "............#HH#.....XXX...." +
-  "............#HH#............" +
-  "............#HH#............" +
-  "............HHHH............" +
-  "...........S#HH#S..........." +
-  "...........S#HH#S..........." +
-  "...........S#HH#S..........." +
-  "############HHHH############" +
-  "#########HHHH##HHHH#########",
-/*  18 */
-  "....G........SPS........G..." +
-  "####S###S....S.S....S###S###" +
-  "....S...S....S.S....S...S..." +
-  "....S....H...S.S...H....S..." +
-  "....S....H...S$S...H....S..." +
-  "H#########H#######H########H" +
-  "H---------H.......H--------H" +
-  "H..........H.....H.........H" +
-  "H...$.$....H.....H...$.$...H" +
-  "H###########H...H##########H" +
-  "H...........H...H..........H" +
-  "H............H.H...........H" +
-  "H....$.....$.HGH.$....$....H" +
-  "H#############H############H" +
-  "H..........$..H..$.........H" +
-  "############################",
-/*  19 */
-  ".........................S.." +
-  "-------.$.$.$.$.$........S.." +
-  "H.....$##H=#=#=#=H.......S.." +
-  "H...$##..H.......H.......S.." +
-  "H..##....H.......H.......S.." +
-  "H..G.....H...$...H.......S.G" +
-  "######H#############H####H#X" +
-  "......H.............H....H.." +
-  "......H.............H....H.." +
-  "......H..................HXH" +
-  "..$...H------------------H.H" +
-  "H#####H.......P..........H.H" +
-  "H.....H.....H############H.H" +
-  "H.....H.....H............H.H" +
-  "H.$...H$....H...$........H$H" +
-  "############################",
-/*  20 */
-  "S..........S...............S" +
-  "S..........S...............S" +
-  "H------..G.S.G...--........H" +
-  "H.....H##########H.###HH###H" +
-  "H.....H##..##..##H.#$#HH#$#H" +
-  "H.....H#.#.$$.#.#H.###HH###H" +
-  "H.....H#..####..#H.........H" +
-  "H.....H##.#$$#.##H....##...H" +
-  "H.$.$.H##.#$$#.##H...#$$#..H" +
-  "H####.H#..####..#H...####..H" +
-  "H.....H#.#....#.#H.#$.$$.$#H" +
-  "H.....H##$$##$$##H.########H" +
-  "H.....H##########H..#$$$$#.H" +
-  "H.....H..........H...####..H" +
-  "H.....H....P.$...H.........H" +
-  "############################",
-/*  21 */
-  "............H...P...S...H..." +
-  "............H...#...S...HG.." +
-  "............H...#...S.S###S." +
-  "......$.$...S.#####.S.S...S." +
-  "...H######H###.$#$.#H.S...S." +
-  "...H......H..#######H.S.$.S." +
-  "...H......H..#H...H#H.H###H." +
-  "...H......H..#H.#.H#H.H$.$H." +
-  "...H......H..#H$#$H#H.H###H." +
-  "###H###...H..HH###HHH.H.$.H." +
-  "#..S..#...H.#H#...#H##H###H." +
-  "#..S..#...H.#H$...$H#.H$.$H." +
-  "#..S..#...H.#H#.$.#H#.H###H." +
-  "#..S..#...H.#H.###.H#.H...H." +
-  "#GGSGG#...H.#H..$..H#$H.$.H." +
-  "############################",
-/*  22 */
-  "............S..............S" +
-  "------------S$.............S" +
-  "H...........H##H...........S" +
-  "HP...$..$...H.$H....$.$....S" +
-  "H###########S##$###########H" +
-  "H---H.......S..............H" +
-  "H#..H.......S..............H" +
-  "X#..H...$.G.S$......$G..$..H" +
-  "----H#######H#H######X#####H" +
-  "....H.......H#H.......-----H" +
-  "$...H.......H#H............H" +
-  "--G$H....$..H#H............H" +
-  "XH##H#######H#H....$..$....H" +
-  ".H..H.......H#H............H" +
-  ".H..H.......H#H............H" +
-  "############################",
-/*  23 */
-  "S...........G..............S" +
-  "S.......SSSS.SSSS.S........S" +
-  "S.......S....S..S.S........S" +
-  "S.......S.SS.S..S.S........S" +
-  "S.......S..S.S..S..........S" +
-  "S.$.$.$.SSSS$SSSS.S.$.$.$.$S" +
-  "H##########################H" +
-  "H........$.$.$.$.$.........H" +
-  "H$.$.$.$H#########H$.$.$.$.H" +
-  "H########....G....#########H" +
-  "H#$$$$$$#.$.$.$.$.#$$$$$$$#H" +
-  "H########H#######H#########H" +
-  "H.$.$.$.$H#$.$.$#H$.$.$.$.$H" +
-  "H##########H###H###########H" +
-  "HP.$.$.$.$.H###H.$.$.$.$.$.H" +
-  "############################",
-/*  24 */
-  "GS........................S#" +
-  "#S---------------------P--S#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$##XH#" +
-  "#H$#####################.$H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$.$H#" +
-  "#H$#####################.$H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$.$H#" +
-  "#H$#####################.$H#" +
-  "#H----$$$$$$$$------------H#" +
-  "#H.$..########..$$$$$$$$..H#" +
-  "#H.$............########..H#" +
-  "#H.$..#####S##............H#" +
-  "#H.$..#....S.#...$$$$$$...H#" +
-  "#H.$..#....S.#..S######S..H#" +
-  "#H....#GGGGS.#..S......S..H#" +
-  "############################",
-/*  25 */
-  "##################H#########" +
-  "#--.....$...$...H#H#H---H.$#" +
-  "#.#H############H#H#H#$.H###" +
-  "#.#H#H.$...$....H#H#H###H..#" +
-  "#.#H#H##########H#H#H.$#H$##" +
-  "#.#H#H#--.$...H#H#H#####H###" +
-  "###H#H#.######H#H#SGH$$$H$H#" +
-  "P.$H#H#.#H.$H#H#H###H#####H#" +
-  "#####H#.#H##H#H#H#$#H#$#H#H#" +
-  "#$---H###H.#H#H#H#H#H#$#H#H#" +
-  "###S#H#H.H$#H#H#H#H#H#$#H#H#" +
-  "#..S#H#H####H#H#H#H#H#$#H#H#" +
-  "#..S#H#H#$$.H#H#H#H.H.$.H#H#" +
-  "#GGS#H#H######H#H#########H#" +
-  "#GGS#H$H..$$..H#H...$.$...H#" +
-  "############################",
-/*  26 */
-  "###############S############" +
-  "#$$$$$$$$######S#$$$$$$$$$##" +
-  "#H######H#$$$$$S#H#####H#H##" +
-  "#H#GG.$#H#H####S#H#$$$#H#H##" +
-  "#H#G.#H#H#H$$$#S#H#H#H#H#H##" +
-  "#H#..#H#H####H#S#H#H#H#H#H##" +
-  "#H#..#H#H#$$$H#S#H#H#H#H#H##" +
-  "#H#..#H#H#H####S#H#H#H#H#H##" +
-  "#H#..#H#H#H$$$$S#H#H#H#H#H##" +
-  "#H#..#H#H######H#H#H#H#H#H##" +
-  "#H#..#H$H$$$$$$H#H#H#H#H#H##" +
-  "#H###############H#H#H#H#H##" +
-  "#H$$$$$$$$$$G$$$$H$H#H$H#H##" +
-  "#########################H##" +
-  "#P$$$$$$$$$$$$$$$$$$$$$$$H##" +
-  "############################",
-/*  27 */
-  "S................P.........S" +
-  "S...............---........S" +
-  "H#######H########X#########H" +
-  "H-------H------------------H" +
-  "H.G.$$..H..$.$...$..$.$$..$H" +
-  "H#XH####H##########H##X####H" +
-  "H--H----H----H-----H--$.$.$H" +
-  "H..H....H....H.....H..#####H" +
-  "H.$H..$.H.G..H$..$.H$.#..$.H" +
-  "H#########X########H#H#S####" +
-  "H--H---------------H-H#S...#" +
-  "H$.H..$.$....$.....H###S...#" +
-  "H..H######H########X###S...#" +
-  "H--H------H------H----#S..G#" +
-  "H$.H.$....H$.$...H.$$.#S.GG#" +
-  "############################",
-/*  28 */
-  "............S..............." +
-  "............S..............." +
-  "..$...$-----S-------.P$.$..." +
-  "H######H..#$H$#....H#######H" +
-  "H......H..##H##....H.......H" +
-  "H$$..$.H..$.H...$$.H.$..$..H" +
-  "H######H###########H#######H" +
-  "H......H...........H.......H" +
-  "H......H...........H.......H" +
-  "H..G...H..$$.....$.H.......H" +
-  "H############H#############H" +
-  "H------------H-------------H" +
-  "H......$..$..H...$...H.....H" +
-  "H##H#########H#######H#####H" +
-  "H..H.....$...H.$..$..H.$...H" +
-  "############################",
-/*  29 */
-  "=S...........G............S=" +
-  "=S------------------------S=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H........................H=" +
-  "=H------------------------H=" +
-  "=H$$$$$$$$$$$P$$$$$$$$$$$$H=" +
-  "=H#####=====H####H====####H=" +
-  "=H..........H....H........H=" +
-  "=H$$$$$$$$$$H$.$$H$$$$$$$$H=" +
-  "=#############X############=" +
-  "=GG...........X..........GG=",
-/*  30 */
-  ".....S................S....." +
-  ".....S................S$.G.." +
-  ".....SP....$..........H###H." +
-  ".####H#..###H.........H...H." +
-  ".....H#.$#..H-----$...H...H." +
-  ".....H####..H.H..===H######." +
-  "$....H......H$H.....H$...$.." +
-  "##H#####H####X######H#####S." +
-  "..H.....H...........H.....S." +
-  "..H.....H...........H.....S." +
-  "..H....$H.-------...H.$...S." +
-  "######H###H..$..####H####.S#" +
-  "......H...H$.G......H...#GS#" +
-  "......H...###H......H...####" +
-  "......H$.....H......H.$....." +
-  "############################",
-/*  31 */
-  ".S...................S..P..." +
-  ".S...................S......" +
-  ".SG.$..$.$..$.$..$...S......" +
-  ".H#######H###=#==#===H......" +
-  ".H.......H...........H......" +
-  ".H......$H...$.$....$H$..$$." +
-  "########H#########H###H#X#H." +
-  "...$.$..H......$..H...H...H." +
-  "..H##H..H......H###...H.$.H." +
-  "$.H.$H.GH-.....H......H...H." +
-  "###X#H###.-....H......H#####" +
-  ".....H.....-$..H.$.$..H....." +
-  ".....H......#####H#####....." +
-  ".....H...........H.........." +
-  "..$..H........G$.H........$." +
-  "############################",
-/*  32 */
-  "###H########################" +
-  "#$$H##H$H#H$H#H#$H$$$$$$$$.#" +
-  "#H#H##H#H$H#H$H##H#####H#H$#" +
-  "#H#H#X########H$$H#H$H#H#H$#" +
-  "#H#H$$$$$$$$$#H##H#H#H#H#H$#" +
-  "#H#H########H#H$#H#H#H#H#H$#" +
-  "#H#H#G#H$$H#H#H$#H###H#H####" +
-  "#H#H#H#H$$H#H#H$#H$$$H#H$$$#" +
-  "#H#H#H#H##H#H#H########H####" +
-  "#H#H#H#H##H#H#H#$$$$$$$H--H#" +
-  "#H#H#H$H##H#H#H#H######H#$H#" +
-  "#H#H######H#H###$#$$$.#H#$H#" +
-  "#H#H$$$$$$H#H$$$H#H#H$#H#$H#" +
-  "#H################H####H#$H#" +
-  "##$$$$$$$$$$$$$$$$H$$$$H#PH#" +
-  "############################",
-/*  33 */
-  "H$$$$$$$$$$..P..$$$$$$$$$$$H" +
-  "H==========================H" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H##########################H" +
-  "H..........................H" +
-  "H...........SS.............H" +
-  "H.........$#SS#$...........H" +
-  "H........$#.SS.#$..........H" +
-  "H.......$#..SS..#$.........H" +
-  "H.......#.SSSSSS.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "H.......#.S....S.#.........H" +
-  "HG......#.SGGG.S.#........GH" +
-  "H##########################H" +
-  "H#$######################$#H",
-/*  34 */
-  "P..........................." +
-  "XHHHHHHHHHHHHHHHHHHHHHHHHHHX" +
-  "$H........................H$" +
-  "XH..........GGG...........HX" +
-  "$H...##################...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H...#$$$$$$$$$$$$$$$$#...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H...#$$$$$$$$$$$$$$$$#...H$" +
-  "XH...#$$$$$$$$$$$$$$$$#...HX" +
-  "$H---$$$$$$$$-$$$$$$$$$---H$" +
-  "XH$$#########$##########..HX" +
-  "$H###$$$$$$$###$$$$$$$$###H$" +
-  "XH------------------------HX" +
-  ".H........................H." +
-  "############################",
-/*  35 */
-  "---------------------------H" +
-  "H.H$HH.HHH..$.$....H.HH....H" +
-  "H.$HH...H...H.H...$....$$..H" +
-  "H.H...$...$$$$..$.H..$.HH..H" +
-  "H.H...H...HHHH..H....H..H$.H" +
-  "H$...$..$..$..$$$.$..H..$H.H" +
-  "HH...H..H..H$.HHH.H..H..H..H" +
-  "HH.$..$$$...H..H..H.$H.....H" +
-  "H$.H..HHH.$....H....H...$..H" +
-  "HH..$$.$.$H....$.$.....$H..H" +
-  "HH$.HH.H.H$.$$.H$H....$HH..H" +
-  "HHH.$$..$.H.HH$.H...$$H....H" +
-  "H...HH$.H....HH$H..$HHH....H" +
-  "H.....H........H...HH......H" +
-  "HG...........G............PH" +
-  "#############X##############",
-/*  36 */
-  "#----SSSSSSSSPSSSSSSSSS----#" +
-  "#...HHHHHHHHHHHHHHHHHHHH..H#" +
-  "#H..H$$$$$$$$$$$$$$$$$$H.H.#" +
-  "#.H.H$$$$$$$$$$$$$$$$$$HH..#" +
-  "#..HH$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H$$$$$$$$$$$$$$$$$$H...#" +
-  "#...H........G.........H...#" +
-  "#...H##################H...#" +
-  "#...H------------------H...#" +
-  "#...H......SSSSSS......H...#" +
-  "#...H.....$S....S$.....H...#" +
-  "#...H....$#S....S#$....H...#" +
-  "#...H...$#.S....S.#$...H...#" +
-  "#...H$$$#..S....S..#$$$H...#" +
-  "#########..S.GG.S..#########",
-/*  37 */
-  "=..........................=" +
-  "=H........................H=" +
-  "=H.....H-----------H......H=" +
-  "=H.....H...........H......H=" +
-  "=H.....H=.........=H......H=" +
-  "=H$$$$$H=$$$$P$$$$=H$$$$$$H=" +
-  "=H===========#============H=" +
-  "=H$$$$$$$$$$$$$$$$$$$$$$$$H=" +
-  "=H########################H=" +
-  "=H........................H=" +
-  "=H$$$$$...........$$$$$$$$H=" +
-  "=H#####$$.$$G$$.$$########H=" +
-  "=H.....$H#######H$........H=" +
-  "=H.....$H-------H$........H=" +
-  "=H$$$$$$HSSSSSSSH$$$$$$$$$H=" +
-  "=#=#=#=#=XXXXXXX=#=#=#=#=#==",
-/*  38 */
-  "H..........................." +
-  "H.........P--------$----...." +
-  "H.G.S.S.S.H.S.S.S..#$..G#..." +
-  "###S.S.S.S.S.S.S.S.######..." +
-  "................S..#$####..." +
-  ".................S.###H##..." +
-  "................S..###H##..." +
-  ".....$..$...$....S.S.S.S.S.S" +
-  "##H#######H###H...S.S.S.S.S." +
-  "..H.......H#$#H............S" +
-  "$$H$$.....H###H########...S." +
-  "==H==$$$--H...H#$$$$#$#....S" +
-  "=GS.=###H.H...H######X#...S." +
-  "=GS.=..#H.H...H######X#....S" +
-  "=GS.=$.#H$H$.$H######X#####H" +
-  "=====################X$$$$$H",
-/*  39 */
-  "........S..................." +
-  ".....$..S..$..$..---........" +
-  "..$H##H.H########H.........." +
-  ".H##..H.H........H........$." +
-  "H#....H$H...$....H.X$.....#H" +
-  "H....=#=H=#=H....H..#...$#.H" +
-  "HH...#..S..#H....H...####..H" +
-  "$H...=..S..=H....H.........H" +
-  "$H...#GGSGG#H..G.S...------H" +
-  "H####=#=#=#=#####H#$#$.H...H" +
-  "H................H###H.H.$.H" +
-  "H#...#H--........H---H.####H" +
-  "H#.$.#H..-----..$H...H.....H" +
-  "H#####H#$....####H...H.....H" +
-  "H.....H....P.....H...H.....H" +
-  "############################",
-/*  40 */
-  ".........SSS.....SSSS......." +
-  "---------SSS-----SSSS-------" +
-  "H.......$###.....####......H" +
-  "H......$####....######.....H" +
-  "H.....$##.##...##$$$$##....H" +
-  "H....$##..##.G.##$##$##G...H" +
-  "H...$##$$$##$..##$##$##....H" +
-  "H..$#########$.##$##$##....H" +
-  "H..###########.##$##$##....H" +
-  "H.........##...##$##$##G...H" +
-  "H.........##...##$##$##....H" +
-  "H.........##...##$$$$##....H" +
-  "H.......P.##....######.....H" +
-  "H.........##.....####......H" +
-  "H..........................H" +
-  "############################",
-/*  41 */
-  ".......S..............S....." +
-  ".......S..............S$...." +
-  "......HS------.G.H#$..H##..." +
-  "...$$.HS.$.$$....H.$..H....." +
-  "---###X##H###----H...$H....." +
-  "$..$.....H...##X#H.###X#...." +
-  "####.G...H.......H.S....$$.." +
-  ".$$$..$.$H...$$.H##S........" +
-  "....H####H##X###HH#S....--.." +
-  ".---H....H.....##H#S----$.P$" +
-  "$$$$H....H.G.....H#S-####===" +
-  "#X##H.$.$H...$$$.H.S........" +
-  "....H=====##H####H###H......" +
-  "....H.......H....H...H......" +
-  "....H..$....H.$..H.$$H.$...." +
-  "############################",
-/*  42 */
-  "...........................H" +
-  "...........................H" +
-  "...$H....$....$.......$..$.H" +
-  "XXX##########H##$....H####XH" +
-  "GGG..$.......H..#$..$H.....S" +
-  "SSS====H.....H...####H.....S" +
-  "====...H.....H.......H.....S" +
-  ".......H..$..H-------H.$..$S" +
-  ".......H######H..$...H#=#HXS" +
-  "...H---H......H......H...H.S" +
-  "...H.$.H....$.H...$..H..$H.S" +
-  "...H...H....H#H######H.$#..S" +
-  "$..H.$.H..$.H#H.$..$.H$#...S" +
-  "H#######H###H#H###########XH" +
-  "H.......H...H#H............H" +
-  "#H.$....H..$H#H......$...P.H",
-/*  43 */
-  "#GGG$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "#H##########################" +
-  "#H$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "##########################H#" +
-  "#P$$$$$$$$$$$$$$$$$$$$$$$$H#" +
-  "############################",
-/*  44 */
-  ".......H...................." +
-  ".......H...................." +
-  ".......S.......----------H.." +
-  ".......S------H.$......H#H.." +
-  "$...$..S.....$H....P.$$H.H.." +
-  "#H############H####H#####H.." +
-  ".H---------........H-----H.." +
-  ".H...$.$G.---------H.....H.." +
-  ".H########H...$...$#$G$.$H.." +
-  "$H........H..$...$H###H###.." +
-  "$H----H...H...$.$#H...H....." +
-  ".H..$GH...H....$#.H...H....." +
-  "######H...H...$#..H...H....." +
-  "......H...H..$#...H...H....." +
-  "......H...H.$#....H.$.H.$..." +
-  "=#=#=#=#=#=#=#=#=#=#=#=#=#=#",
-/*  45 */
-  "H----------$###$-----------H" +
-  "H---------$##G##......G....H" +
-  "H.........H####$--.........H" +
-  "H......P..H$###$$H.........H" +
-  "H..$......H$##.$#H..$......H" +
-  "H........$####$##H$........H" +
-  "H.......$##$##X#HHH.....$..H" +
-  "H......H##.$##$...H........H" +
-  "H.G....H...$##$...H........H" +
-  "H....$.H...$##$$$.H........H" +
-  "H......H...$#####$H........H" +
-  "H......H.$$##H--#$H....$...H" +
-  "H......HH###.H$$#$H........H" +
-  "H......H$#$.$H$$##H........H" +
-  "H......H.....H....H........H" +
-  "H##########################H",
-/*  46 */
-  ".S..........G......S........" +
-  ".S....------H......S.$......" +
-  ".H...-H.....H......S$H......" +
-  ".H..-.H.....$......SHH.--$--" +
-  ".H.-..H-....H------SHH-..H.." +
-  ".H-G..H.-..$.......SH$...H.." +
-  ".$....H..-.H-.......H....H.$" +
-  ".....HH...-H--------H----H.." +
-  ".....H$.......H.....$......." +
-  ".H---H-.......H............." +
-  ".H.......----$H....-$..-$--$" +
-  ".H------$...HHH...-.H.-.H..H" +
-  ".H......H...H$H..-..H-..H..H" +
-  ".H...$..H...HHH.-...H...H..H" +
-  ".H......H.....H-....H......H" +
-  ".H...P..H...........H......H",
-/*  47 */
-  ".H.H.H.H.H.H.H.H.H.H.H.H.H.H" +
-  "H##########################H" +
-  "H#S--------H####H--------S#H" +
-  "H#S$.......H....H.......$S#H" +
-  "H#S------..HG$$GH..------S#H" +
-  "H#S$....H##########H....$S#H" +
-  "H#S$....H..........H....$S#H" +
-  "H#S---..H$.$....$.$H..---S#H" +
-  "H#S$.H################H.$S#H" +
-  "H#S$.H................H.$S#H" +
-  "H#S$.H$.$.$.$..$.$.$.$H.$S#H" +
-  "H#H######################H#H" +
-  "H#H......................H#H" +
-  "H#HG$.$.$.$.$.$.$.$.$.$.PH#H" +
-  "H#X######################X#H" +
-  "H.H.H.H.H.H.H.H.H.H.H.H.H.H.",
-/*  48 */
-  "#S########################S#" +
-  "#SG.$.$.$.$.$P$.$.$.$.$.$GS#" +
-  "#S########################S#" +
-  "#S#...$.$.$.$.$.$.$.$.$..#S#" +
-  "#S#.####################.#S#" +
-  "#S#.#...$.$.$.$.$.$.$..#.#S#" +
-  "#S#.#.################.#.#S#" +
-  "#S#.#.#.......G......#.#.#S#" +
-  "#S#.#.#.$.$.$.$.$.$.$#.#.#S#" +
-  "#S#.#.################.#.#S#" +
-  "#S#.#.$.$.$.$.$.$.$.$.$#.#S#" +
-  "#S#.####################.#S#" +
-  "#S#.$.$.$.$.$.$.$.$.$.$.$#S#" +
-  "#S########################S#" +
-  "#S$.$.$.$.$.$.$.$.$.$.$.$.S#" +
-  "############################",
-/*  49 */
-  "HHH....H.....H.P.H...H.....H" +
-  "HHH....H.....H...H...H.....H" +
-  "HHH$--$H$---$H$-$H$$$H$$$$$H" +
-  "HHH#$$#H#$$$#H#$#H###H#####H" +
-  "HHH#$$#H##$$#H#$#H#$$HHH#HHH" +
-  "HHH#$$#H#H#$#H#$#H##$HHH#HHH" +
-  "HHH#$$#H#HH##H#$#H#$$HHH#HHH" +
-  "HHHH##HH#HHH#HH#HH###HHH#HHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH",
-/*  50 */
-  ".....$......................" +
-  "....H#...$#H..$$...$$$$$$..." +
-  "....H#..$#HH..H#...#H###H#$#" +
-  "....H#.$#$H$..H#.#.#H#$#HH#H" +
-  "....HH$#.H##H.H#.#.#H###H$#H" +
-  ".....H#..#..#HH##.##H#$#H.#H" +
-  ".....#.....#.H......H...H..H" +
-  ".....#....#..H......H...H..H" +
-  ".........#...HP$$$$$H$$$H$$H" +
-  "GG$$$$$$$####H#HH##HHH##HHHH" +
-  "H###HH##H$...H#H#$$#H#$$#H.." +
-  "H$#$H#$$#H...H#H#$$#H#$$#H.." +
-  "H$#$H#$$#H...H#H#$$#H#$$#H.." +
-  "H$#$H.##.H...H#H.##.H.##.H.." +
-  "H$.$H....H...H.H....H....H.." +
-  "############################",
-/*  51 */
-  "####H#######################" +
-  "#..#H#....$$$=$$$=$$$=$..=$#" +
-  "#$$$H#$###H#H$H#H$H#H$H#$$H#" +
-  "####H#####H#####H#######===#" +
-  "#SSSH$$$$$H$$$$$H$$$$$$$$$$#" +
-  "#SG#######################H#" +
-  "#SG#$$$$$$$$$$$$$$$$$$$$$#H#" +
-  "#SG#H###################H#H#" +
-  "#SG#H#$$$#$$$$$$$$$$$#$#H#H#" +
-  "####H###H#H#########H#H#H#H#" +
-  "#$$$H$$$H#H#$#$$$$$$H#H#H#H#" +
-  "#H##H#####H#H#H#######H#H#H#" +
-  "#H$#H$$$$$H#H#H$$$$$$$H#HGH#" +
-  "#H$#########H#H#############" +
-  "#H$$$$$$$$$$H#H$$$$$$$$$$$.#" +
-  "#########################HP#",
-/*  52 */
-  "....H......................." +
-  "....H......................." +
-  "....H..$...................." +
-  "....HX###H......$....G......" +
-  "....S....H###############H.." +
-  "....SG.-$H...............H.." +
-  "....HX#X#H#######H------.H.." +
-  "....HG...........H......##.." +
-  "....#H...........H.....X$#.." +
-  "....#X######H....H....X..#.." +
-  "............H#############.." +
-  ".........$..HH---------....." +
-  ".......H#####H...$.....P...." +
-  ".......H....###########H...." +
-  ".......H.$.............H...." +
-  "############################",
-/*  53 */
-  ".GGP.......................H" +
-  "...........................H" +
-  "......SSSSSSSSSSSSSSSSSSSSSH" +
-  "......S...............$...##" +
-  "......S........$########H..." +
-  "......S....$...#........H..." +
-  "==##==H########.........H..." +
-  "=....=H..........H#######..." +
-  "=....=H..##......H#######..." +
-  "=---.=H.####.-...H#######..." +
-  "==.$#=H#$##$#H-..H###$###..." +
-  "######H######H.-.H#######..." +
-  "=####=H######H..-H#######..." +
-  "......H------H...H#######..." +
-  "......H$....$H.............." +
-  "############################",
-/*  54 */
-  "....S.S..S..S..S..S.S....=S." +
-  "...S..S..S..P..S..S..S...=H." +
-  "..S...S....###....S...S..=S." +
-  ".........H#####H.........=H." +
-  "..G......H#...#H......G..=S." +
-  "..H####H###...###H####H..=H." +
-  "..H.$$#H..#...#..H#$$.H..=S." +
-  "..H.$$#H.#-$-$-#.H#$$.H..=H." +
-  "..H####H.#.#$#.#.H####H..=S." +
-  ".......H.#######.H.......=H." +
-  ".......H.........H....###=S." +
-  ".......H.........H....#H##H." +
-  "#######################H#$S$" +
-  "==========================H=" +
-  "=$$$$$$$$$$$$$$$$$$$$$$$$$S=" +
-  "============================",
-/*  55 */
-  "HHH######################HHH" +
-  "H$H------H--------H------H$H" +
-  "HGH......H........H......HGH" +
-  "#HH.=###=H#..P...#H=###=.HH#" +
-  "#S..=###=H###==###H=###=..S#" +
-  "#S..=###=HH##==##HH=###=..S#" +
-  "#S..=#$#=.H##==##H.=#$#=..S#" +
-  "#S..=#X#=.H##$$##H.=#X#=..S#" +
-  "#S........H##==##H........S#" +
-  "#S........H##==##H........S#" +
-  "#S..#####HH##==##HH#####..S#" +
-  "#S..#...#H###==###H#...#..S#" +
-  "#HS.#$$$#H#......#H#$$$#.SH#" +
-  "HGS.#####H--------H#####.SGH" +
-  "H$S......H........H......S$H" +
-  "HHS######H########H######SHH",
-/*  56 */
-  "G................P.......S.." +
-  "..$......................S.." +
-  "..H....$....$....$.......S.." +
-  "..H----H####H####H....$..S.." +
-  "..H...H#....H....H####H#XH.." +
-  "..H.$.H..$..H....H....H..H--" +
-  "##H#S#H###############H##HX." +
-  "G#H.S.H#.....###---$.....HX." +
-  "..H.S.H......$---..H..$..HX#" +
-  "..#####S.....H.....H.....HX." +
-  ".......S.....H.....H..#####." +
-  ".....$.S...$.G.....H........" +
-  "X####H######H#######S$......" +
-  "X####H......H.......#H#####." +
-  "X$$##H......H........H......" +
-  "#####=##=#==H==#=##=###=####",
-/*  57 */
-  "...................H$.....$." +
-  "..................$H#######X" +
-  ".SSSSSSSSSHH#######H$..$...$" +
-  ".S.......HH##H..$..H#######X" +
-  ".S......HH##HH#####H$.....$$" +
-  ".S......H##HH$....$H#######X" +
-  ".S......HH##H######H$..$...$" +
-  ".S.......HH##H$.$..H#######X" +
-  ".S...HHH..HH##H####H$.....$$" +
-  ".S..H...H..HH#H...$H#######X" +
-  ".S.H..G..H..H#H####H...$...$" +
-  ".HH...G...HHH#H.$..H#######X" +
-  ".H#H..G.#...##H####H$.....$." +
-  ".H#H#HG.#.#.#HH.$..H######H$" +
-  ".H#H#HG.#.#.#H$...$H...$..HP" +
-  "############################",
-/*  58 */
-  "............GP.............S" +
-  "...........................S" +
-  "...........................S" +
-  ".$..$...$..................S" +
-  "###H#########H###########H.S" +
-  "..GH.........H.......G...H.S" +
-  "...H.........H...........H.S" +
-  "...H..$....$.H.$.........H.S" +
-  "...H###H######H##H.......H.S" +
-  ".$.H...H------H..H.$....$H.S" +
-  "H######H....H.H..H###H###H.S" +
-  "H......H----H-H--H...H...H.S" +
-  "H..$...H.$..H....H...H...H.S" +
-  "X##########################S" +
-  "H....$........$..$....$....S" +
-  "X##########################S",
-/*  59 */
-  "HH########################HH" +
-  "HS....H.-....HH....-.H....SH" +
-  "#S####H#.####HH####.#H####S#" +
-  "#S#H..H#.#H..HH..H#.#H..H#S#" +
-  "#S#H..H#.#H######H#.#H..H#S#" +
-  "#S#H.$H#$#H.$##$.H#$#H$.H#S#" +
-  "#S#H######H######H######H#S#" +
-  "#S.H......H$.GP.$H......H.S#" +
-  "#S.H......H$....$H......H.S#" +
-  "#S#H######H######H######H#S#" +
-  "#S#H.$H#$#H.$##$.H#$#H$.H#S#" +
-  "#S#H..H#.#H######H#.#H..H#S#" +
-  "#S#H..H#.#H..HH..H#.#H..H#S#" +
-  "#S####H#.####HH####.#H####S#" +
-  "HS....H.-....HH....-.H....SH" +
-  "HH########################HH",
-/*  60 */
-  "............S..............." +
-  "...........#S####..........." +
-  "......----##S...##.........." +
-  "......H.#..#S....###........" +
-  "......H.##..S$.G...#........" +
-  "......H###H#########........" +
-  "......H#..H........#........" +
-  "......H#..H.$..$...#........" +
-  "......H#X#H#######H........." +
-  "......H.X.H.......H#######.." +
-  "..SS..H.X.H.......H#........" +
-  "..SS..H.X-H-------HH........" +
-  ".SSSS.H.X.H####X###H........" +
-  ".S..S.H.X.H..$.X..#H........" +
-  ".S..S.H.X.#######.#H.......P" +
-  "#########========G=#########",
-/*  61 */
-  "...S.............S.........." +
-  "...S.............S..#######." +
-  "...S.....$..H###HS..#..#..#." +
-  "...S.$H#######.$#H.....#...." +
-  "...H############.H....$#...." +
-  ".H#####.$..$..#..$...H###..." +
-  "H#....#####H###########....." +
-  "H..##H.#...H#G#........##..." +
-  "H.#HH#H....P#$#.......#HH#G." +
-  "H#$HH$#HH##H###H.....#$HH$#." +
-  "#HHHHHH#H.###$###$.H#HHHHHH#" +
-  "#HHHHHH#H...###.##.H#HHHHHH#" +
-  ".#$HH$#.H..........H.#$HH$#." +
-  "..#HH#..H..........H..#HH#.." +
-  "...##...H..........H...##..." +
-  "############################",
-/*  62 */
-  "H--------------------------H" +
-  "H.....####........####.....H" +
-  "H....#..==#H....H#==..#....H" +
-  "H....#..=$#H.GG.H#$=..#....H" +
-  "H.....####HH####HH####.....H" +
-  "H.........H#....#H.........H" +
-  "H.........H#=$$=#H.........H" +
-  "H..######################..H" +
-  "H.#........H#..#H........#.H" +
-  "H.#...H##H-H#$$#H-H##H...#.H" +
-  "H.#..H#..#.H-##-H.#..#H..#.H" +
-  "H.#..H#$$#.HG..PH.#$$#H..#.H" +
-  "H..######################..H" +
-  "H..........................H" +
-  "H..........................H" +
-  "############################",
-/*  63 */
-  "H---------.##########.-----H" +
-  "H........##.......##.##....H" +
-  "H........#..G.........#....H" +
-  "H.......#######G########...H" +
-  "H....###...#.$###$.#...###.H" +
-  "H...#.##...#.#.#.#.#...##.#H" +
-  "H...#..#...#$..#..$#...#..#H" +
-  "H...#..#...##$###$##...#..#H" +
-  "H....###...P#X#..X##...###.H" +
-  "H.......#..$.X....X.$..##..H" +
-  "H.......#G##$.X..X.$##G#...H" +
-  "H........#..#$.##.$#..#....H" +
-  "H.........#..#$..$#..#.....H" +
-  "H..........#..#$$#..#......H" +
-  "H$$$$$$$$$$$#..##..#$$$$$$$H" +
-  "HHHHHHHHHHHHH######HHHHHHHHH",
-/*  64 */
-  "..........................H." +
-  "........................H..." +
-  "....H----H..............H..." +
-  "$...H...$H.......P.....GH..." +
-  "####H############H......H..." +
-  "............$....H......H..." +
-  "............H----H......H..." +
-  ".......$....H....H....H-H..." +
-  ".......H----H...$H$...H$H..." +
-  "...$...H....H---HHS####X#..." +
-  "...G...H....$...H######X#..." +
-  "...H###H##########.........." +
-  "...H...S...................." +
-  "...H...S...................." +
-  "...H...S.................$.." +
-  "############################",
-/*  65 */
-  "#H########################H#" +
-  "#H#......................#H#" +
-  "#H#$.......$.....$......$#H#" +
-  "#H#########H-----H########H#" +
-  "#H##.......H.....H......##H#" +
-  "#S$#.......H..$..H......#$S#" +
-  "##H###########H##########H##" +
-  "#.H...........H..........H.#" +
-  "#$H...---.....H.....---..H$#" +
-  "#H#####X######H######X####H#" +
-  "#H............H...........H#" +
-  "#H.....$......H......$....H#" +
-  "#H#####X######H######X####H#" +
-  "#H............$...........H#" +
-  "#H.....G......P......G....H#" +
-  "############################",
-/*  66 */
-  "S..........................S" +
-  "SG$$$$$$$$$$$P$$$$$$$$$$$$GS" +
-  "H##########################H" +
-  "H--------------------------H" +
-  "H..........................H" +
-  "H--------------------------H" +
-  "HXXXXXXXXXXXXXXXXXXXXXXXXXXH" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H##########################H" +
-  "H##########################H" +
-  "H$$$$$$$$$$$$$$$$$$$$$$$$$$H" +
-  "H--------------------------H" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "H##########################H" +
-  "H==========================H",
-/*  67 */
-  "..S........................S" +
-  "..S......$.....$...........S" +
-  "..S......H.....H...........S" +
-  "..S------H-----H........$..S" +
-  "..H...$........H...$....H..S" +
-  "..H---H......------H----H..S" +
-  "..H...H......H.....H....H..S" +
-  "..H---H---...H.....H....H--S" +
-  "..H------H---H.....--H--H..." +
-  ".........H...H....$..H......" +
-  ".............H....H......$.." +
-  "...$.........H....H------H.." +
-  "...H.........H----H----HHH.." +
-  "...H---------H----H......H.." +
-  "...H.....................H.." +
-  "GG.H.....................H.P",
-/*  68 */
-  "...........................H" +
-  "...........................H" +
-  "G..$..$.........----H......H" +
-  "#########H.....-....H.$...SH" +
-  ".........H----------H#####X#" +
-  ".........H....$..P..H......." +
-  "......H###########H.H......." +
-  "......H....#####H.H.H......." +
-  ".$.$..H....#.$.#H.H.H......." +
-  "#########H.#####H.H$H.$.$..." +
-  ".........H.=====HH#######H.." +
-  ".........H-------H.......H.." +
-  ".........H...$...H.......HG$" +
-  ".........H.......H.......###" +
-  "G..$.....H.......H.........." +
-  "############################",
-/*  69 */
-  "#####S######################" +
-  "#H$H#S#G...$.........$....H#" +
-  "#H#H#S####################H#" +
-  "#H#H#S.$.....$........$...H#" +
-  ".H#H#############H########H#" +
-  ".##HH#H..$..G..H#H#..$H#$#H#" +
-  ".#$.H#H########H#H#..#H#H#H#" +
-  ".###H#H#.$...$#H#H#..#H#H#H#" +
-  ".#$.H#H#......#H#H#.G#H#H#H#" +
-  ".###H#H#H##$#H#H#H####H#H#H#" +
-  ".#H$H#H#H#.H#H#H#H....H$H#H#" +
-  ".#H###H#H#.H#H#H##########H#" +
-  ".#H..GH#H#.HHH#H..$......#H#" +
-  "##H#####H#.S#H############H#" +
-  "P.H....$H#.S#H$.....$.....H#" +
-  "##########GS################",
-/*  70 */
-  ".S.........................S" +
-  ".S.#######################.S" +
-  ".S#....HH---H##H---HH.....#S" +
-  ".S#....H#...H##H...#H.....#S" +
-  ".S#....H####H##H####H.....#S" +
-  ".S#....H#$$$.##.$$$#H.....#S" +
-  ".S#....H#....##....#H.....#S" +
-  ".S#....H------------H.....#S" +
-  ".S#####HXXXXXXXXXXXXH######S" +
-  ".S#....H------------H.....#S" +
-  ".S#....H#....##....#H.....#S" +
-  ".S#....H#$$$.##.$$$#H.....#S" +
-  ".S#....H############H.....#S" +
-  ".S#....H#...H##H...#H.....#S" +
-  ".S#P...HH---H##H---HH....G#S" +
-  ".S.#######################.S",
-/*  71 */
-  "...............G............" +
-  ".............##X#####S......" +
-  "..G.$..$.......$......S....." +
-  "..X#######H----.$.$....S...." +
-  "..........H....#####H.S....." +
-  "...$..$.--H.........H-.S.$.G" +
-  "..######..H...$.....H.#####X" +
-  "..........H#######$.H......." +
-  "..........H.......##H......." +
-  "...$.$.---H.........H......." +
-  "..#####...H.........H......." +
-  "..........H.........H.$.$..." +
-  "....$...$.H.$.......#######." +
-  "...############H............" +
-  "...............H...........P" +
-  "############################",
-/*  72 */
-  "#P#......############$$$#..G" +
-  "#$#.....##..........###HH#GG" +
-  "#$#...#H#$$$$$$$$$$$$$##H##G" +
-  "#$#..##H$############HH#HHH#" +
-  "#$#..#.H####$$$$$$$$$#HH#$H#" +
-  "#$#.##.##$#$$######$$.#H#$H#" +
-  "#$#$#..#$$#$##....###$#H#$H#" +
-  "#$#$#.$#$##$#$$G$$$H#$#H#$H#" +
-  "#$#$#.##$#.$#$####HH#$#H.#H#" +
-  "#$#$#$##$#$##$#$$$#H#$#H$#H#" +
-  "#$#$#$##$#$#$$$$$$#H#$#H$#H#" +
-  "#$#$#$##$#$########H#$#H$#H#" +
-  "#$#X#$##$#$$$$$$$$$H#$#H$#H#" +
-  "#$.X#$##$############$#H##H#" +
-  "##$$$$$$$$$$$$$$$$$$$$$H$$H#" +
-  ".###########################",
-/*  73 */
-  "#######....................G" +
-  "########H......HH..........." +
-  "########HHHH...H.##########." +
-  "#####$$#...H...H.##########." +
-  "##########.H..PH.##########." +
-  "...........HH###.##########." +
-  "............H#$#.#$$$$$$$$#." +
-  "............H###.##########." +
-  "............H....##########." +
-  "............H....##########." +
-  "............H....##########." +
-  "#######.....H##############." +
-  "#######H....H..#...#...#..GX" +
-  "#$$$$##H....H#H#H#H#H#H#H#HX" +
-  "#######H....H#H.H#H.H#H.H#H$" +
-  "############################",
-/*  74 */
-  "##H$$$$$$----------$$$$$$.##" +
-  "#$H######G........G######.$#" +
-  "#HH.######........#####...P#" +
-  "HHH.#...#.........#...#...##" +
-  "H#H.#..$#..#$..$#.#$..#...#G" +
-  "H#H.####...#$..$#..####...#G" +
-  "H#H........#$..$#.........#G" +
-  "H#S.........#$$#.........S#." +
-  "H##S..###$$......$$###..S##." +
-  "H.#SS.#####SSSSSS#####.SS#.." +
-  "H.##SS.##$.######.$##.SS##.." +
-  "H..##SS.##$$$..$$$##.SS##..." +
-  "H...##SS.####$$####.SS##...." +
-  "H....#SSSS..####..SSS##....." +
-  "H.....##HSSSSSSSSSSS##......" +
-  "############################",
-/*  75 */
-  "....................S......." +
-  "....G......G........S......." +
-  "...###.....#........S#S....." +
-  "..........H--$.......$S..#.." +
-  "......----H#.H.....H###..#.." +
-  "--$---..X.H..H.----HH----H.." +
-  "..#.#$..##H..X#....#H....H--" +
-  "P.#.##....H.........H--..H.." +
-  "..#$......H-----$$.-H.#..H$#" +
-  ".......$#....H.###X.H$#.H###" +
-  "H---...##...HH...##.###.H..." +
-  "H..H........H#$......##.H..." +
-  "H.H.#$....HHHH#HHHH#...$H..." +
-  "H.H.##HH.$H..--H.H##$--#H..." +
-  "H$#...H.##H-$..H.H..H#.#H..." +
-  "###...H...H...$H....##..H...",
-/*  76 */
-  "...S........................" +
-  "...S....G..................." +
-  "..######H..................." +
-  "........H..--------H........" +
-  "........H$........$H........" +
-  "........##########X##H#H...." +
-  ".....................H.H.$.P" +
-  ".....................H.=====" +
-  "..............H----.$H......" +
-  "..$G.$........H...####......" +
-  ".#####H.......H............." +
-  "......H.....$.H............." +
-  "......H..#H###.............." +
-  "......H...H........H--------" +
-  "....$.H...H...G....H...$...." +
-  "#####################=======",
-/*  77 */
-  "..................S........." +
-  "..................S...------" +
-  "............$.....S$G#.....S" +
-  "====####====H....#####.....S" +
-  ".H---.......H----H.........S" +
-  ".H..........H....H---------S" +
-  ".H.H####----H....H.........." +
-  ".H.H#..#....H.$..H.........." +
-  ".H.H#..#..##X##..H.....$...." +
-  ".H.H#$G#.........H.........." +
-  ".H.H####.........H.........." +
-  ".H...............H......P..." +
-  ".H.........$.....H..#H###X.." +
-  ".H......H###H....H..#H...X.." +
-  ".H.G....H$..H....H..#H...X.." +
-  "===##################H.$.X##",
-/*  78 */
-  "G...S...S...S...S.S..S.....P" +
-  "....S...S...S...S.S..S......" +
-  "....S...S...S...S.S..S......" +
-  "....S...S...S...S.SH###H...." +
-  "....S.H###H.S...S.SH#$#H...." +
-  "....S.H#$#H.S.H###HH###H...." +
-  "....S.H###H.S.H#$#HH...H...." +
-  "....S.H...H.S.H###HH...H...." +
-  "..H###H...H.S.H...HH...H...." +
-  "..H#$#H...H.S.H...HH...H...." +
-  "..H###H...H###H...HH...H###H" +
-  "..H...H...H#$#H.H###H..H#$#H" +
-  "..H...H...H###H.H#$#H..H###H" +
-  "..H...H...H...H.H###H..H...H" +
-  "..H...H...H...H.H...H..H...H" +
-  "############################",
-/*  79 */
-  "=$$$$$$$$$$$$$$$$$$$$$$$$$$=" +
-  "=HHHHHHHHHHHHHHHHHHHHHHHHHH=" +
-  "=HHHHHHHHHHHHHHHHHHHHHHHHHH=" +
-  "=HHHHHHHHHH$G$HHHHHHHHHHHHH=" +
-  "=HP...HHHHHH#HHHHHHH$HHHHHH=" +
-  "=X####HHHHHH#HHHHHHH$HHHHHH=" +
-  "=X$$$#HHHHHH#HHHHH$$#$$HHHH=" +
-  "=X####HHHHH$#HHHHHHH$HHHHHH=" +
-  "=X$$##HHHHH#$HHHHHHH$HHHHHH=" +
-  "=X$$$$HHHHH#HHHHHHHHHHHHHHH=" +
-  "=X##$$HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HH###HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HHHH#HHHHH#HHHHHHHHHHHHHHH=" +
-  "=HHHH#HHHH##HHHHHHH$HGH$HHH=" +
-  "=HHHH#HHHH#HHHHHHHH#####HHH=" +
-  "############################",
-/*  80 */
-  "---------------------------H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....................H" +
-  "$$$$$$$....$$$$$$$$$.......H" +
-  "$$$$$$$...S#########S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S......H" +
-  "$$$$$$$...S.........S.H#H###" +
-  "P$$$$$$...S.........S.H#S.GG" +
-  "########################SGGG",
-/*  81 */
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHH$HHHHHH" +
-  "H$HHHHHHHHHH$HHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHH$HHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHH$HHHHH$HHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHH$HHHHHHHHHHHHHH" +
-  "HHHHH$HHHHHHHHHHHHH$HHHHHH$H" +
-  "HHHHHHHHHH$HHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  "PHHHHHHHHHHHHHHHHHHHHHHHHHHG",
-/*  82 */
-  ".............H.............." +
-  ".$..G.$......H.....----....." +
-  "==##H###.....H-----...H....." +
-  "....H.................H....." +
-  "....H.................H....." +
-  "----H..............GS##X####" +
-  "....H...........S####......." +
-  "....H...........S..........." +
-  "$...H.......$...S..........." +
-  "....H------H#####..........." +
-  "....H..P$..H----H-----.....$" +
-  "#H#=X=#=####....H....##H####" +
-  ".H............$.H......S...." +
-  ".H..............H......S...." +
-  ".H...$..........H...$..S...$" +
-  "######################GS####",
-/*  83 */
-  "#G########################S#" +
-  "#$.#..#.$#.H#.H#..#.H#H.#$S#" +
-  "#H.#..#.H#.H#.H#..#$H#H.#HS#" +
-  "#H.#..$.H#$H#.H#$.#.H#H$#HS#" +
-  "#H$#.H#HH#.H#.H$H.#.H#HH$HS#" +
-  "#HH.$H#H.#.H#.H#H.#.H#HH#HS#" +
-  "#HH#HH#H.#.H#$H#H.$.H#.H#HS#" +
-  "#.H#HH#H.#.H#HH#HH#HH#.H#HS#" +
-  "#GH.$H#H$.$H#H.#.H#H.#$H#HS#" +
-  "#.H#HH#HH#HH#H.#.H#H.#.H#HH#" +
-  "#.H#H.#HH#HH#H.$.H#H.#.H#HH#" +
-  "#.H#H.#.H#HH#HH#HH#H$--H#HH#" +
-  "#.H#H.$$H#.H.$H#HH#HH#.H#H$#" +
-  "#.H#HH#HH#.H#HH#H.#HH#.H#H.#" +
-  "#$H#HH#HH#$H#HH#H$#HH#$H#HP#" +
-  "############################",
-/*  84 */
-  "#.........................S#" +
-  "#......G..................S#" +
-  "#...S########S............S#" +
-  "#...S........S......H-----S#" +
-  "#...S.----H..S..$.$.H..$..S#" +
-  "#...H..===H..#######H--H..S#" +
-  "#---H.....H.$..$....H.....S#" +
-  "#HXXH.....X###.H----H....$S#" +
-  "#H...$.........H........####" +
-  "#H--HH-----....H....$.-----H" +
-  "#.......$.H..$.H------...##H" +
-  "##...XXH#.H--H......S.....#H" +
-  "###....H..H........XS..X..#H" +
-  "####...H--H.......#.S...#.#H" +
-  "#####.....S.......#GS.G####H" +
-  "######GG..S.....########$.PH",
-/*  85 */
-  "..........S...............S." +
-  "..........S...............S." +
-  "..........S......$........S." +
-  "......$...S......H........S." +
-  "......H---H------H--------H." +
-  "......H.....$....H...$....H." +
-  "......H...$......H......$.H." +
-  "......H.....X=#=#H#=######H#" +
-  "..G...H...................H." +
-  "..H...H..$-......$....G$..H." +
-  "##H###H##H.-..........H##.H." +
-  "..H...H..H..-.........H...H." +
-  "..H......H...-........H..$H." +
-  "..H...$..H....-.......H.###." +
-  "..$......H.....-......H.P..$" +
-  "##X######H#XXXXX############",
-/*  86 */
-  "###H--H.$..-------...G.-----" +
-  "H.#H..H####P......=====..$.." +
-  "H$#H..H..$........---H.....$" +
-  "H.#H..H####........$.H..####" +
-  "H..H..H.$.$..........H......" +
-  "#H##..####H..........H.$.$.." +
-  ".H....$...HG.......#.H.###.." +
-  ".H....####H..........H--...." +
-  ".H......$.H................." +
-  ".H.$..H###H.H=======........" +
-  "X###..H$..$.H....$.........." +
-  "......####H.H----H---------." +
-  "..........S............$...." +
-  "..........S............#...." +
-  "..........S................." +
-  "##########H#################",
-];
+const QS = new URLSearchParams(location.search);
+const LEVELS_URL = QS.get("levels") || "levels.json";
+const README_URL = QS.get("readme") || "README.md";
 
-/* ------------------------------------------------------------------------
-   Stephen Linhart's 30 levels, decoded from
-   original-files/stephen-linhart-levels.bin.  Every one of the 30
-   re-encodes byte-identically to the original file.  They lean much
-   harder on the engine than Jim's do - 29 of the 30 have the engine's
-   maximum of five guards and only three chests, several put two or more
-   guards on the same row, and level 27 is half false brick - which is
-   why the timing and chase rules had to be measured against the
-   original rather than guessed.
-   ------------------------------------------------------------------------ */
-const LINHART_LEVELS = [
-/*   1 */
-  "HHH.HHH.HHH.HHH.H.H.H.H.S..G" +
-  "H...H.H.H...H.H.H.H.H.H.S..." +
-  "HHH.H.H.HH..HHH.HH...H..S..." +
-  "..H.H.H.H...H.H.H.H..H..S..." +
-  "HHH.H.H.HHH.H.H.H.H..H..S..." +
-  "........................S..." +
-  "H...HHH.H.H.HHH.H...HHH.S..." +
-  "H...H...H.H.H...H...H...S..." +
-  "H...HH..H.H.HH..H...HHH.S..." +
-  "H...H...H.H.H...H.....H.S..." +
-  "HHH.HHH..H..HHH.HHH.HHH.S..." +
-  "........................S..." +
-  "HHHHHHHHHHHHHHHHHHHHHHHSS..." +
-  ".......H.......H............" +
-  ".....P.H.......H............" +
-  ".....##H###X###H##....$.....",
-/*   2 */
-  "$............G.............." +
-  "H............H.............." +
-  "H............H.............." +
-  "H............H.............." +
-  "H............H.............." +
-  "H....G......GH......G......G" +
-  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
-  ".............H.............H" +
-  ".............H.............H" +
-  ".............H.............H" +
-  ".............H.............H" +
-  ".............H.............H" +
-  ".............H.............H" +
-  ".............H.............H" +
-  "..........P..H.............H" +
-  ".......H###########H.......H",
-/*   3 */
-  ".G......G...G....G......G..." +
-  "####H####H##X##H###X#####H##" +
-  "....H....H..H.PH...-.....H.." +
-  "##H###H-.H...H####H.#...###H" +
-  "..H..#H.####.H....H.#..##..H" +
-  ".H##.#H......H.###..#.#.$H##" +
-  ".H.....#...##H...H..#H...H.#" +
-  "#H#####$.#H..H..#.#...###H.." +
-  "#H#...####..#H#...#####..##H" +
-  "#H.#..H....#.H.#H........#.H" +
-  ".H..#..H#...#H#..#..#H#..#.H" +
-  ".###.#.H#....H......#H#H#.##" +
-  "...$...H#H##.H.####H#H......" +
-  ".######H#H...H.....H#H#####." +
-  ".......H#H...H.....H#H......" +
-  "############################",
-/*   4 */
-  "########.###################" +
-  "#..G..##H...G....##G.....G##" +
-  "#X##############H#####H#####" +
-  "#X........####..H.....H##..#" +
-  "#####H#H############H####H##" +
-  "#$...H#H........##$#H....H##" +
-  "#####H#########H######H#####" +
-  "##...H....##...H......H#...#" +
-  "##H#############H#######H###" +
-  "#.H...#.........H#......H.##" +
-  "#####H#######H########H##H##" +
-  "##...H...###.H........H#.H.#" +
-  "###H########H###############" +
-  "#..HG.......H.............##" +
-  "#########################H##" +
-  "##$......................HP#",
-/*   5 */
-  "..........H-----------------" +
-  "..........H...P............." +
-  "..........H................." +
-  "..........H................." +
-  "..........H.GGGGG..........." +
-  "..........H..$.............." +
-  "..........H................." +
-  "..........H....$............" +
-  "..........H................." +
-  "..........H................." +
-  "..........H......######$...." +
-  "..........H......#.........." +
-  "..........H......#....#HHHHH" +
-  "..........H......#....#....." +
-  "..........H...........#....." +
-  "###########X################",
-/*   6 */
-  "S.......S...G..G....-......P" +
-  "S.......S.G.==X=====X=======" +
-  "#XH########............#...." +
-  "..H..#.#.H......----H..#=#=H" +
-  "..H..###.H...#.#....H....X#H" +
-  "..H......H....#.....H----#=H" +
-  "..H......H...#.#....H....=#H" +
-  "..H.$..G.H..........H......H" +
-  "..H......H......$...H......H" +
-  "..H......H....------H......H" +
-  "..H------H..........H......H" +
-  ".........H..........H......H" +
-  "G........H.=.............$.H" +
-  "####X########X#########X####" +
-  "...#.#......#.#.......#.#..." +
-  "...###......###.......###...",
-/*   7 */
-  "..---........-.........P.$-G" +
-  "..-H.-......-.-#####...==H==" +
-  ".-S..##-...-HG#-=.=##=......" +
-  ".-S#.G#.-.=-=##.#.#...#.HHH." +
-  ".-S=.=.#.....#..-.G##==H-#H." +
-  "-#S#.....-..G#....-=###-=.H." +
-  "-=S.....-...#.H.#..H.#-X=..H" +
-  "-HS..SSSS..-##.....----=...H" +
-  "-S...S.-#S.#.-.......-.....H" +
-  ".HSSSS.=.#S.=.-.=.#$#-.-..=." +
-  "#=S..=-=#==H....-.-#..-....." +
-  "#HS.-.#...#.S..=..-....--..." +
-  "##S-..#.....S........-.-----" +
-  "=HS###....=#S..-.......#.--." +
-  ".H........SSS.......H.##..=." +
-  "HH........S#S.$..####.......",
-/*   8 */
-  ".....H..............H......." +
-  ".....H..............H......." +
-  ".....H..............H......G" +
-  "-----H------.-------H-------" +
-  "$....H..........$...H......$" +
-  ".....H..............H......." +
-  "G....H..............H......." +
-  "-----H------.-------H-------" +
-  ".....H..............H......." +
-  ".....H..............H......." +
-  "G....H..............H......." +
-  "-----H------.-------H-------" +
-  ".....H..............H......." +
-  ".....H..............H......." +
-  ".....H..............H......." +
-  ".....HG............PH......G",
-/*   9 */
-  "...........S................" +
-  "...........S################" +
-  "###########S.G...........H.." +
-  "...........S.#S##########H.." +
-  "...........S..#..........H.." +
-  ".....------S.#.#.........H.." +
-  ".........H...............H.." +
-  "...#G#...H.....G.........H.." +
-  "....#....H...#S##########H.." +
-  ".........H....#..........H.." +
-  "...SSSSSSH...#.#.........H.." +
-  "..$S$....H...............H.." +
-  "..XSX....H.....G.........H.." +
-  "...#.....H#..#S##########HG." +
-  ".........H....#..........H.." +
-  "$..S######S..#.#.........HP.",
-/*  10 */
-  "..........S..P.............." +
-  "..........S................." +
-  "..........S................." +
-  "..........S..G.............." +
-  "..........SG................" +
-  "..........S.$..............." +
-  "..........S$G..............." +
-  "..........S................." +
-  "..........S................." +
-  "..........S................." +
-  "..........S................." +
-  "G.........S..$.............." +
-  "#H........S...........G....." +
-  "##H.......S........H#####H.." +
-  "###H......S....H##########H." +
-  "############################",
-/*  11 */
-  "....G=......................" +
-  ".H====......................" +
-  ".H.........................." +
-  ".H.........$.P.............." +
-  "S============###$..........G" +
-  "S............X##============" +
-  "S..........................." +
-  "S..........................." +
-  "S..........................." +
-  "S..........................." +
-  "S..........................." +
-  "S............$.............." +
-  "H------------S.............." +
-  "H..........................." +
-  "H..........................." +
-  "H......................G.G.G",
-/*  12 */
-  "......#.........#..........#" +
-  "#G.H###..G#.....###...H.H###" +
-  "###H....###..G#H....H#.#H..." +
-  "....#H.....H###H..H###.###H." +
-  "..###.#H..#H....#GH.......H#" +
-  "#.....###H###...###H..G#H###" +
-  "###H#$...H....#H...H.###H..." +
-  "....###..H.H###H.H#.H...H#H." +
-  ".H#....H#.#H....###.H..###H$" +
-  ".H###.###.###H......H#....H#" +
-  "#............H#....###..H###" +
-  "###..H#.....###.......H#H..." +
-  "....#H###.......#H....H###H." +
-  ".H###H...$#H.H###H...#H...H#" +
-  "#H...H#.###.#H..PH#..###H###" +
-  "###.###.....###.###.....H...",
-/*  13 */
-  "............S..G............" +
-  "...........$S###H..........." +
-  "############S...H...G......G" +
-  "......H.....SP..H###########" +
-  "......H.....S...H..........." +
-  "......HSSSSSS...H..G....G..." +
-  "#H######....S...###########H" +
-  ".H..........S..............H" +
-  ".H..........S--............H" +
-  "######H#.---S...#H##########" +
-  "......H.#...S...#H.........." +
-  "......H.X...S...#H.........." +
-  "#H#######...S...###########H" +
-  ".H......#...S...#..........H" +
-  ".H......#########..........H" +
-  "H######H..$.#.$..H#########H",
-/*  14 */
-  ".......S...................." +
-  ".......S........P..........." +
-  "#######S########H###########" +
-  ".......S........H..........." +
-  ".......S........H......####." +
-  "......$S........H......XXXX." +
-  "......#S........H......XXXX." +
-  ".......S........H......XXXX." +
-  ".......S........H......XXXX." +
-  ".......S........H......X$.X." +
-  "######.S########H......####." +
-  ".......S.......#H......XXXX." +
-  ".......S.......#H..........." +
-  ".......S.......#H##########S" +
-  ".......S.......#H....GGGGG#S" +
-  ".......S......$############S",
-/*  15 */
-  "............................" +
-  "................S..........." +
-  "..............--H..........." +
-  "................H..........." +
-  "...........#.#..H..........." +
-  "............#...H..........." +
-  "...........#$#..H..........." +
-  "................H..........." +
-  "............$...H..........." +
-  "................H..........." +
-  "............$...H..........." +
-  "................H..........." +
-  "................H..........." +
-  "................H..........." +
-  "................H..........." +
-  ".....GGGGG....P.H...........",
-/*  16 */
-  "G.....G.......G....G.......G" +
-  "$...S.$...............S....$" +
-  "####S#################S#####" +
-  "....S.................S....." +
-  "....S.........P.......S....." +
-  "########S################S##" +
-  "........S................S.." +
-  "........S................S.." +
-  "#############S####S#########" +
-  ".............S....S........." +
-  ".............S....S........." +
-  "####S#########S#########S###" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................",
-/*  17 */
-  ".G...G....G...G.....G......S" +
-  "H..........................S" +
-  "#############H#######X######" +
-  ".............H.$...........$" +
-  "H###=X=#=#=#=H============XH" +
-  "H............S.............H" +
-  "######X#############H#######" +
-  "......H......P......H......." +
-  "H#####X####################H" +
-  "H..........................H" +
-  "###X#########H##############" +
-  ".............H.............." +
-  "H##.#########H#############H" +
-  "H--------------------------H" +
-  "H#########################X#" +
-  "H..........................$",
-/*  18 */
-  "............................" +
-  "........S............G......" +
-  ".#.#.#.#S#.#.#.#.#.#.#.#.#.#" +
-  "........S.........G........." +
-  "#.#.#.#S#.#.#.#.#.#.#.#.#.#." +
-  ".......S.......G............" +
-  ".#.#.#.#S#.#.#.#.#.#.#.#.#.#" +
-  ".......PS...G..............." +
-  "#.#.#.#S#.#.#.#.#.#.#.#.#.#." +
-  ".......S.G..S.S.S.S........." +
-  ".#.#.#.#S#.#.#.#S#.#.#.#.#.#" +
-  "........S.......SS$........." +
-  "#.#.#.#S#.#.#.#S#.#.#.#.#.#." +
-  ".......SS......SS$S.S.S.S..." +
-  ".#.#.#.#.#.#.#S#.#.#.#.#.#S#" +
-  "..............S.$.........S.",
-/*  19 */
-  "P..........................." +
-  "SS.....G..G.....G...G..G...." +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H###########$.#############H" +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H############.$############H" +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H###########$.#############H" +
-  "H############X#############H" +
-  "H############X#############H" +
-  "H..........................H",
-/*  20 */
-  "............................" +
-  "========H######S##.=========" +
-  "........H#...#GS.#H........G" +
-  "........H#...#GSG#H........G" +
-  "........H#..$##S##H........." +
-  "........H#X###.S.-H........." +
-  "........H#.....S..H........." +
-  "........H#....#S#.H........." +
-  "........H#....#S#.H........." +
-  "........H#########H........." +
-  "........H#...#...#H........." +
-  "........H#.$.#....H-------.." +
-  "........HX##X#####H......-#." +
-  "........H#........H......-#." +
-  "........H#.......#H......-#." +
-  "P.......H#########H.......#$",
-/*  21 */
-  "H.........G..SG...G...G...G." +
-  "H............S.............." +
-  "#........#...S.............#" +
-  "H.########...S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "$............S.............." +
-  "H............S.............." +
-  "H............S.............." +
-  "H......P.....S............$$" +
-  "#SSSSS#######H##############",
-/*  22 */
-  ".GGGGG......................" +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################......." +
-  "S####################P.$.$.$" +
-  "S###########################" +
-  "S###########################" +
-  "S###########################" +
-  "S###########################" +
-  "S###########################" +
-  "S....................#######",
-/*  23 */
-  "..G....G.....G.....G.....G.." +
-  "..............S............." +
-  "SSSSSSSSSSSSSSSSSSSSSSSSSSSS" +
-  "S......$.....S...$.$.......S" +
-  "S............S.............S" +
-  "S............S.............S" +
-  "S............S.............S" +
-  "S............S..P..........S" +
-  "############################" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................",
-/*  24 */
-  "P........G###=#####.#######." +
-  "###################S###=###S" +
-  "##...H##X###H...###S#######S" +
-  "#####H##X.##H######S#######S" +
-  "#####H######H##X##GSSSSSSSSS" +
-  "#####H#=.$.#H##X.####X#####S" +
-  "##.##H######H########X#####S" +
-  "#####H##X###H###$##=#X#=###S" +
-  "#####H##X###H###X####X#####S" +
-  "##=##H##X###H###X####X#####S" +
-  "#####H..G..HH##...###X#####S" +
-  "###=#################X##=##S" +
-  "############=########X#####S" +
-  "#####################X#####S" +
-  "G...............G..........S" +
-  "########H##################$",
-/*  25 */
-  "...S...............P........" +
-  "...S.......................G" +
-  "...H#.......#......#.......#" +
-  "...H.#..#..#........#.-...#." +
-  "...H..#...#.....#....=$..#.." +
-  "...H...#.#..#.......#.#.#..." +
-  "...H....#....#.....#...X...." +
-  "...H..........#...-----....." +
-  "...H....$......#$#.........." +
-  "...H............X..........." +
-  "...H........................" +
-  "...H........................" +
-  "...H........................" +
-  "...H........................" +
-  "...H.....G...G...G....G....." +
-  "############################",
-/*  26 */
-  "P......G....G...G....G....G." +
-  "H##########################." +
-  "H######H###################." +
-  "H######H########H##########." +
-  "H=#####H########H#########H." +
-  "H$.....H........H.........H." +
-  "H......H........H.........H." +
-  "HHHHHH.H.HHHHHH.H.HHHHHHHHH." +
-  ".......H........H..........." +
-  ".......H........H..........." +
-  ".......H..H.....H..........$" +
-  "##########H################." +
-  "##########H#############H##." +
-  "##########H##########H##H##." +
-  "..........H..........H..H..." +
-  "..........H..........H..H..$",
-/*  27 */
-  "X#XXX.X#X.X.XX.P.XX..X#X..XX" +
-  "XX..XXXXXXXS.GX#.XXX#X.X.XXX" +
-  "XXX.XG..XXXX#HXXH##.XXXXX.X#" +
-  "X.X#XH#.X#XXXHXXXXXXXX.XX#XX" +
-  "#XXXXHXXXX.XXHX.XX..X.#X.XXX" +
-  "XXXXXHXX.X..XHXX..X#XXX#XXXG" +
-  "G...HHX#.XX#.HXX#XXX.X.$GXX#" +
-  "X###XHXXX...XH...S.X#.XHX..X" +
-  "XXXXXHX.###XXX###SXX.XXHX#XX" +
-  "...XXHX#.X...XXX.S.SX.XHXXXX" +
-  "X#X.XHXX..X#..#X.X#HX#XH...X" +
-  "XX..#HX.X#XX#X#XXXXS..XHXX#X" +
-  ".X#XXHX.X.X.X...XXXX###H.HX." +
-  "#X.XXH..$XXXX##...XXXX#X#HX." +
-  "X.X$.HXH#XX.X..##...X#XX.H#X" +
-  "X.X#.H.HX.X.....XX#X.....HXX",
-/*  28 */
-  "...G..SG...G...P...G...G...." +
-  "......S....................." +
-  "......S....................." +
-  "...HHHHHHHHHHHHHHHHHHHHH...." +
-  "...H..S......S......S..H...." +
-  "...H.#S#....#S#....#S#.H...." +
-  "...H..#......#......#..H...." +
-  "...H.#$#....#$#....#$#.H...." +
-  "...H...................H...." +
-  "...HHHHHHHHHHHHHHHHHHHHH...." +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................" +
-  "............................",
-/*  29 */
-  ".G...G...G....P...G......G.." +
-  ".......S#$#..#.#.....#S#...." +
-  "#.#....S.X....X..#$#..#....." +
-  ".X..#$#S..#S#.....X.....#.#." +
-  ".....X.S...#..#S#...#S#..X.." +
-  "......#S#S----.#.#.#.#......" +
-  ".S#S#..#.S..#S#...X...#S#.#S" +
-  ".S.#.....S...#.........#...#" +
-  "S#S#..S#S#S....H#S#.....#S#." +
-  "S.#H#S#.#.S....H.#.#S#...X.." +
-  "S-.H.#....#S##S#H...#.#S#..." +
-  "#S#H#.#....#..#.H......#...." +
-  ".#.H.#..#S#...-.H#S#S...H#S#" +
-  "...H.....#.-H#S#..#..H#S#.#." +
-  "...H........S.#......H.#...." +
-  "...H........S........H......",
-/*  30 */
-  "............................" +
-  "H#############X#####HHH####." +
-  "H...........P.$.....H##H###." +
-  "H#####X####H##.######..S...." +
-  "H..........H........#..S...." +
-  "H..........H........#..S...." +
-  "H.....#.#..H........#..S...." +
-  "H......#...H........#..S...." +
-  "H......$...H........#..S...." +
-  "H..........H........#..S...." +
-  "H..........H........#..S...." +
-  "H..........H........#..S...." +
-  "H......####H#####---#..S...." +
-  "H..........H...#....#..S...." +
-  "H...................#..S...." +
-  "H...GGGGG...........#.$S....",
-];
+/* Filled in by init() before the game starts.  `LEVELS` stays the one name the
+   rest of the game reads, exactly as it was when the levels were inline. */
+let LEVELS = [], LEVEL_TITLE = "", LEVEL_WIN = "";
 
-/* The active set.  `LEVELS` stays the single name the rest of the game reads,
-   so nothing below here has to know that there is more than one set. */
-const LEVEL_SETS = [
-  { name: "Jim's levels", short: "JIM", levels: JIM_LEVELS },
-  { name: "Stephen Linhart's levels", short: "LINHART", levels: LINHART_LEVELS }
-];
-let setIndex = 0;
-let LEVELS = LEVEL_SETS[0].levels;
+/* JSON.parse rejects a literal newline inside a string literal, and a board is
+   nothing but literal newlines.  So walk the text once and escape every
+   control character that occurs INSIDE a string, leaving everything outside
+   strings alone so the file's own layout is untouched.  Tracking the in-string
+   state is the whole job: a quote toggles it, and a backslash inside a string
+   swallows the next character, so \" does not toggle and \\ does not swallow
+   the quote that follows it.
+   The cost of the relaxation: the level files are not strictly valid JSON, so
+   jq and Python's json.load will not read them as they stand. */
+const JSON_ESCAPES = { "\n": "\\n", "\r": "\\r", "\t": "\\t",
+                       "\b": "\\b", "\f": "\\f" };
+function escapeControlsInStrings(text) {
+  let out = "", inStr = false, esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { out += ch; esc = false; continue; }     /* escaped, verbatim */
+    if (ch === "\\") { out += ch; esc = inStr; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && ch < " ") {
+      out += JSON_ESCAPES[ch] ||
+             ("\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"));
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/* 16 lines of 28 characters in, one 448-character row-major string out - the
+   shape buildLevel has always read.  The board is trimmed as a whole, and
+   trailing spaces are dropped per line since no tile character is a space, so
+   one can only be an accident.  LEADING whitespace is deliberately kept:
+   dropping it would silently shift a row sideways, whereas keeping it fails
+   the width check below, or is named as a bad character by validateLevels. */
+function flattenBoard(board, num, url) {
+  const where = url + " level " + num;
+  const rows = board.trim().split(/\r?\n/).map(function (r) {
+    return r.replace(/[ \t]+$/, "");
+  });
+  if (rows.length !== TH)
+    throw Error(where + " has " + rows.length + " rows; expected " + TH);
+  rows.forEach(function (r, y) {
+    if (r.length !== TW)
+      throw Error(where + " row " + (y + 1) + " is " + r.length +
+                  " characters; expected " + TW + ' ("' + r + '")');
+  });
+  return rows.join("");
+}
+
+function parseLevelFile(text, url) {
+  let data;
+  try {
+    data = JSON.parse(escapeControlsInStrings(text));
+  } catch (err) {
+    throw Error(url + " is not valid JSON: " + err.message +
+                "\n(the position is counted after escaping, where each board " +
+                "is one line, so it will not match the line numbers in the file)");
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data))
+    throw Error(url + ": expected a JSON object with title, win and levels");
+  if (typeof data.title !== "string" || !data.title)
+    throw Error(url + ': "title" must be a non-empty string');
+  if (typeof data.win !== "string")
+    throw Error(url + ': "win" must be a string');
+  if (!Array.isArray(data.levels) || !data.levels.length)
+    throw Error(url + ': "levels" must be a non-empty array');
+  const boards = data.levels.map(function (entry, i) {
+    if (!entry || typeof entry.board !== "string")
+      throw Error(url + " level " + (i + 1) + ': needs a "board" string');
+    return flattenBoard(entry.board, i + 1, url);
+  });
+  return { title: data.title, win: data.win, boards: boards };
+}
 
 /* ========================================================================
    Game state
@@ -3338,7 +1486,7 @@ function processHoles() {
    LodeRunner_TotalRecall, which retuned it.
    The original also adds a difficulty tier to the row index, but that tier
    only advances once you wrap past the last level of the set, so on a first
-   pass through 86 levels it is always zero.
+   pass through a set it is always zero.
    ======================================================================== */
 const movePolicy = [
   [0, 0, 0],
@@ -3828,7 +1976,10 @@ function actorSprite(a, isGuard) {
 }
 
 function draw() {
-  if (!ctx) return;
+  /* The writeup calls layout() when it lands, which can be before the levels
+     have arrived and built a map - so there is a window where there is a
+     canvas but nothing to put on it. */
+  if (!ctx || !map.length) return;
   if (terrainDirty) drawTerrain();
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.drawImage(terrainCv, 0, 0);
@@ -3852,6 +2003,7 @@ function draw() {
    --margin of clear space at the top, left and right.  The scale is a float,
    so zoom is continuous rather than jumping between integer steps. */
 function layout() {
+  if (!ctx) return;                  /* nothing sized yet; see draw() */
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const m = parseFloat(cs.getPropertyValue("--margin")) || 20;
@@ -4175,7 +2327,11 @@ function onKeyDown(e) {
     return;
   }
   if (code === "KeyT") { e.preventDefault(); latched = !latched; if (!latched) latchedDir = null; return; }
-  if (code === "KeyN") { e.preventDefault(); switchSet(setIndex + 1); return; }
+  /* `Equal` is the physical =/+ key, so typing `=` and typing Shift-= both
+     land here; Ctrl/Cmd combinations already returned above, so browser zoom
+     is untouched. */
+  if (code === "Minus" || code === "NumpadSubtract") { e.preventDefault(); setSpeed(speedIndex - 1); return; }
+  if (code === "Equal" || code === "NumpadAdd")      { e.preventDefault(); setSpeed(speedIndex + 1); return; }
   if (code === "BracketLeft")  { e.preventDefault(); startLevel(Math.max(0, level - 1)); return; }
   if (code === "BracketRight") { e.preventDefault(); startLevel(Math.min(LEVELS.length - 1, level + 1)); return; }
   if (/^Digit[0-9]$/.test(code)) {
@@ -4318,15 +2474,32 @@ function pollPad() {
 function updateHud() {
   el("hudLevel").textContent = String(level + 1);
   el("hudCount").textContent = String(LEVELS.length);
-  el("hudSet").textContent = LEVEL_SETS[setIndex].short;
+  el("hudSpeed").textContent = SPEEDS[speedIndex].name;
 }
 
-/* N steps to the next set of levels and starts it at level 1. */
-function switchSet(n) {
-  setIndex = (n + LEVEL_SETS.length) % LEVEL_SETS.length;
-  LEVELS = LEVEL_SETS[setIndex].levels;
-  startLevel(0);
-  showHint(LEVEL_SETS[setIndex].name + " - " + LEVELS.length + " levels");
+/* Everything that names the set comes from the level file, so this file is
+   set-agnostic: point ?levels= somewhere else and the tab title, the win
+   headline and the win sentence all follow it. */
+function applySetStrings() {
+  document.title = LEVEL_TITLE;
+  el("winTitle").textContent = "All " + LEVELS.length + " levels complete";
+  el("winNote").textContent = LEVEL_WIN;
+}
+
+/* `-` and `+` step through SPEEDS, clamped at the ends rather than wrapping:
+   with only three settings, wrapping would turn one extra press of `+` into a
+   jump from HI all the way down to LOW, and the indicator is the only
+   feedback there is. */
+function setSpeed(i) {
+  const j = Math.max(0, Math.min(SPEEDS.length - 1, i));
+  if (j === speedIndex) return;
+  speedIndex = j;
+  TICK_MS = BASE_TICK_MS / SPEEDS[speedIndex].rate;
+  /* the accumulator is in milliseconds, so it is rate-independent - but it
+     can be holding almost a whole OLD tick, which would drain into two ticks
+     back to back on the way up.  Dropping it makes the change crisp. */
+  acc = 0;
+  updateHud();
 }
 
 /* Every level entry starts frozen: page load, advancing a level, R, [ ], a
@@ -4435,34 +2608,159 @@ function spriteSheet() {
 /* ========================================================================
    Boot
    ======================================================================== */
-function validateLevels() {
-  if (JIM_LEVELS.length !== 86) throw Error("expected 86 Jim levels, got " + JIM_LEVELS.length);
-  if (LINHART_LEVELS.length !== 30) throw Error("expected 30 Linhart levels, got " + LINHART_LEVELS.length);
-  const counts = [];
-  LEVEL_SETS.forEach(function (set) {
-    set.levels.forEach(function (s, i) {
-      const where = set.short + " level " + (i + 1);
-      if (s.length !== TW * TH) throw Error(where + " is " + s.length + " chars");
-      let p = 0, g = 0, gold = 0;
-      for (const ch of s) {
-        if (!(ch in CHAR2TILE)) throw Error(where + ': bad char "' + ch + '"');
-        if (ch === "P") p++; else if (ch === "G") g++; else if (ch === "$") gold++;
-      }
-      if (p !== 1) throw Error(where + " has " + p + " players");
-      if (g > 5) throw Error(where + " has " + g + " guards");
-      if (gold < 1) throw Error(where + " has no gold");
-    });
-    counts.push(set.levels.length + " " + set.short);
+function validateLevels(url) {
+  LEVELS.forEach(function (s, i) {
+    const where = url + " level " + (i + 1);
+    if (s.length !== TW * TH) throw Error(where + " is " + s.length + " chars");
+    let p = 0, g = 0, gold = 0;
+    for (const ch of s) {
+      if (!(ch in CHAR2TILE)) throw Error(where + ': bad char "' + ch + '"');
+      if (ch === "P") p++; else if (ch === "G") g++; else if (ch === "$") gold++;
+    }
+    if (p !== 1) throw Error(where + " has " + p + " players");
+    if (g > 5) throw Error(where + " has " + g + " guards");
+    if (gold < 1) throw Error(where + " has no gold");
   });
-  console.log("levels ok: " + counts.join(" + ") +
-              ", 28x16, exactly one player each, <=5 guards, gold in every level");
+  console.log("levels ok: " + LEVELS.length + " levels from " + url + ", " +
+              TW + "x" + TH + ", exactly one player each, <=5 guards, " +
+              "gold in every level");
 }
 
-function init() {
-  buildAtlas();
-  validateLevels();
+/* fetch() rejects opaquely for both of the causes that actually come up, so
+   name them.  A file:// page cannot fetch anything at all, which is by far the
+   most likely way to land here, so that one gets the remedy spelled out. */
+async function fetchText(url) {
+  let res;
+  try {
+    res = await fetch(url, { cache: "no-cache" });
+  } catch (err) {
+    throw Error("could not fetch " + url + ": " + err.message + "\n\n" +
+      (location.protocol === "file:"
+        ? "This page was opened with file://, and a file:// page is not " +
+          "allowed to fetch anything.  Serve the folder over HTTP instead:\n" +
+          "    python3 -m http.server\nthen open http://localhost:8000/"
+        : "If that URL is on another site, that site has to send CORS " +
+          "headers (Access-Control-Allow-Origin)."));
+  }
+  if (!res.ok)
+    throw Error("fetching " + url + " returned HTTP " + res.status +
+                " " + res.statusText);
+  return res.text();
+}
 
-  if (location.search.indexOf("spritesheet") >= 0) { spriteSheet(); return; }
+const MD_BEGIN = "<!-- BEGIN HERE -->", MD_END = "<!-- END HERE -->";
+
+/* Only the text between the markers is shown, so a Markdown file can carry a
+   title, a play link and a banner that belong on GitHub but not here.  Both
+   markers are optional: with no BEGIN HERE the writeup starts at the top of
+   the file, and with no END HERE it runs to the bottom - so ?readme= can point
+   at any plain Markdown file.  Two of either is still an error, since which
+   one wins would only ever be a guess. */
+function extractWriteup(text, url) {
+  const nb = text.split(MD_BEGIN).length - 1;
+  const ne = text.split(MD_END).length - 1;
+  if (nb > 1) throw Error(url + " has " + nb + " " + MD_BEGIN +
+                          " markers; expected at most one");
+  if (ne > 1) throw Error(url + " has " + ne + " " + MD_END +
+                          " markers; expected at most one");
+  const a = nb ? text.indexOf(MD_BEGIN) + MD_BEGIN.length : 0;
+  const b = ne ? text.indexOf(MD_END) : text.length;
+  if (b < a) throw Error(url + " has " + MD_END + " before " + MD_BEGIN);
+  const md = text.slice(a, b).trim();
+  if (!md) throw Error(url + " has no text to show");
+  return md;
+}
+
+/* The CDN scripts are deferred, so they run after this inline script but
+   before DOMContentLoaded - which is therefore the event to wait on.  Note
+   that readyState is already "interactive" while a deferred script is still
+   pending, so only "complete" means DOMContentLoaded has been and gone. */
+async function whenRenderer() {
+  if (!window.marked || !window.DOMPurify) {
+    if (document.readyState !== "complete")
+      await new Promise(function (r) {
+        document.addEventListener("DOMContentLoaded", r, { once: true });
+      });
+  }
+  if (!window.marked || !window.DOMPurify)
+    throw Error("the Markdown renderer failed to load from the CDN " +
+                "(marked and DOMPurify)");
+}
+
+/* A relative link in Markdown means "relative to the Markdown", but the
+   browser would resolve it against this page.  Identical for a writeup that
+   sits beside index.html, wrong for any ?readme= that does not. */
+function resolveRelative(root, base) {
+  root.querySelectorAll("img[src], a[href]").forEach(function (n) {
+    const attr = n.tagName === "IMG" ? "src" : "href";
+    const raw = n.getAttribute(attr);
+    if (!raw || raw[0] === "#" || raw.slice(0, 2) === "//" ||
+        /^[a-z][a-z0-9+.-]*:/i.test(raw)) return;
+    try { n.setAttribute(attr, new URL(raw, base).href); } catch (err) { /* leave it */ }
+  });
+}
+
+/* Sanitized because ?readme= takes any URL, so without it a crafted link to
+   this page could run someone else's script on this origin. */
+async function showWriteup(url) {
+  const text = await fetchText(url);
+  await whenRenderer();
+  const about = el("about");
+  about.innerHTML = DOMPurify.sanitize(marked.parse(extractWriteup(text, url)));
+  resolveRelative(about, new URL(url, location.href).href);
+  layout();     /* the writeup can add a scrollbar, which changes the fit */
+}
+
+/* Two failure reports, and the difference between them is the point: the
+   writeup is decoration, so losing it costs you the prose and nothing else,
+   while losing the levels means there is no game to show.  Both build their
+   message with textContent, never innerHTML - it quotes a URL that came from
+   the query string. */
+function report(target, heading, err) {
+  target.textContent = "";
+  const h = document.createElement("h2");
+  h.textContent = heading;
+  const p = document.createElement("pre");
+  p.textContent = String((err && err.message) || err);
+  target.appendChild(h);
+  target.appendChild(p);
+}
+
+let writeupFailure = null;
+
+function writeupFailed(err) {
+  writeupFailure = err;
+  console.error(err);
+  if (document.body.classList.contains("loadfail")) return;
+  report(el("about"), "The writeup could not be loaded", err);
+  layout();
+}
+
+/* No levels, no game: take the board away rather than leave an empty frame,
+   and let the message have the page.  The writeup, if it loaded, stays below -
+   between them they still explain what this page is. */
+function fatal(err) {
+  document.body.classList.add("loadfail");
+  el("stage").style.display = "none";
+  el("about").style.width = "";
+  if (writeupFailure) el("about").textContent = "";
+  const box = el("loadfail");
+  box.classList.remove("hide");
+  console.error(err);
+  report(box, "The game could not start", err);
+}
+
+async function init() {
+  buildAtlas();
+
+  /* The sprite sheet is a pure art dump, so it has to work with no level file
+     at all - which means before anything is fetched. */
+  if (QS.has("spritesheet")) { spriteSheet(); return; }
+
+  /* Both requests go out now, in parallel.  Only the levels gate the start;
+     the writeup arrives whenever it arrives. */
+  const levelsReq = fetchText(LEVELS_URL);
+  const writeupDone = showWriteup(README_URL).catch(writeupFailed);
 
   cv = el("cv");
   ctx = cv.getContext("2d");
@@ -4471,6 +2769,13 @@ function init() {
 
   /* single source of truth for the frame colour: the ladder's own shade */
   document.documentElement.style.setProperty("--ladder-shade", PAL_TERRAIN.h);
+
+  const set = parseLevelFile(await levelsReq, LEVELS_URL);
+  LEVELS = set.boards;
+  LEVEL_TITLE = set.title;
+  LEVEL_WIN = set.win;
+  validateLevels(LEVELS_URL);
+  applySetStrings();
 
   startLevel(0);      /* builds the map, and leaves the board frozen */
   layout();           /* needs the map to exist, since it draws */
@@ -4489,8 +2794,9 @@ function init() {
   document.body.addEventListener("pointerdown", function () { audio(); });
 
   /* Taps are replayed as the corresponding keydown/keyup, so pause, restart,
-     level change and mute keep exactly one implementation each.  pointerdown
-     rather than click, so it responds without the tap delay. */
+     level change, speed and mute keep exactly one implementation each - and
+     `-` and `+` are separate targets, the same way `[` and `]` are.
+     pointerdown rather than click, so it responds without the tap delay. */
   el("keys").addEventListener("pointerdown", function (e) {
     const t = e.target.closest("[data-tap]");
     if (!t) return;
@@ -4509,9 +2815,13 @@ function init() {
   });
 
   requestAnimationFrame(frame);
+
+  await writeupDone;
 }
 
-init();
+/* One handler for every fatal path: the fetch, the JSON, the board geometry
+   and the content checks all land here. */
+init().catch(fatal);
 </script>
 </body>
 </html>

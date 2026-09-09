@@ -317,9 +317,16 @@ const XMOVE = 8, YMOVE = 8;
    the same at any speed. */
 const FPS = 60.15 / 2, TICK_MS = 1000 / FPS;
 
-const DIG_TICKS   = 24;   // runner frozen this long while shooting
-const HOLE_TICKS  = 180;  // hole lifetime once open
-const HOLE_WARN   = 20;   // refill art plays over the final N ticks, in 2 stages
+/* Shooting is the one place this deliberately departs from the original, which
+   took 24 ticks and - worse - re-validated the shot every tick and abandoned
+   it if a guard stepped into the debris tile.  That is what made firing with
+   apparently plenty of time still get you killed.  Here the hole is real from
+   the instant the shot goes off and the dig is half as long, so firing is a
+   reliable defence.  Both changes only ever make the game easier, so a level
+   that was solvable on the original still is.  See FINDINGS.md section 14. */
+const DIG_TICKS   = 12;   // runner frozen this long while shooting
+const HOLE_TICKS  = 180;  // how long a hole stays fully open, after the dig
+const HOLE_WARN   = 20;   // refill art plays over the final N ticks
 const SHAKE_MOVES = 38;   // guard's hole countdown - in guard MOVES, not ticks
 const SHAKE_WOBBLE = 12;  // ... at or below this it wobbles in place
 const SHAKE_CLIMB  = 6;   // ... at or below this it climbs out
@@ -894,7 +901,7 @@ function buildAtlas() {
   SP.g_born2_L = mirrored(SP.g_born2);
 
   /* the blaster with the muzzle flash suppressed, so it can pulse while
-     firing instead of sitting there lit for all 11 ticks */
+     firing instead of sitting there lit for the whole dig */
   const dimShoot = ART.shoot.map(function (row) { return row.replace(/5/g, "."); });
   SP.r_shootDim = gridToCanvas(dimShoot, PAL_RUNNER);
   SP.r_shootDim_L = mirrored(SP.r_shootDim);
@@ -3112,13 +3119,18 @@ function runnerStep(action, blocked) {
     if (nb !== LADDER && nb !== GUARD) action = A_FALL;
   }
 
+  /* Off a ladder there is exactly one way up: out of the tile that sits on a
+     ladder's top, and only while still above that tile's middle.  The original
+     allows that step and refuses it at the middle (CODE 1 @0x4f92), so the
+     runner walks its last sub-steps and comes to rest dead centre in the tile
+     above the ladder - which is the position the level exit tests for.  Note
+     this is a move, not a block: blocking here would strand the runner a
+     sub-step or two high and make the top of every such ladder a dead end. */
   if (action === A_UP) {
     const onLadder = map[p.x][p.y].base === LADDER;
     const ladderBelow = p.y < TH - 1 && map[p.x][p.y + 1].base === LADDER;
-    if (!onLadder) {
-      /* stepping off the top of a ladder: keep re-centering, don't leave */
-      if (ladderBelow && p.yOffset > 0) blocked = true;
-      else { runner.dist = 0; runner.anim = "stand"; return afterRunnerStep(); }
+    if (!onLadder && !(ladderBelow && p.yOffset > 0)) {
+      runner.dist = 0; runner.anim = "stand"; return afterRunnerStep();
     }
   }
 
@@ -3255,36 +3267,41 @@ function tryShoot(dir) {
   const tx = p.x + dir, ty = p.y + 1;
   if (ty > TH - 1 || tx < 0 || tx >= TW) return afterRunnerStep();
   if (map[tx][ty].act !== BRICK) return afterRunnerStep();
-  if (map[tx][p.y].act !== EMPTY) return afterRunnerStep();
-  if (map[tx][p.y].base === GOLD) return afterRunnerStep();
+  /* Terrain in the way still refuses the shot - the debris has to go
+     somewhere - but a guard standing there does not.  The original refused,
+     which meant the one moment you most want to fire was the moment the key
+     stopped working; now the floor goes out from under him instead. */
+  const debris = map[tx][p.y];
+  if (debris.act !== EMPTY && debris.act !== GUARD) return afterRunnerStep();
+  if (debris.base === GOLD) return afterRunnerStep();
   p.xOffset = 0; p.yOffset = 0;
-  /* frame 1, not 0: the tick that starts the dig is itself the first of the
-     DIG_TICKS the original counts */
+  /* frame 1, not 0: the tick that starts the dig is itself the first of them */
   digging = { x: tx, y: ty, tick: 1, dir: dir };
-  terrainDirty = true;
+  /* The floor gives way at once, while the brick is still visibly crumbling.
+     A guard that steps into the debris tile now finds nothing underfoot and
+     drops in, because a guard weighs up gravity before it weighs up chasing
+     you - so firing in time is what saves you, and being slow to fire is what
+     kills you.  Winding the clock back by the dig length leaves the hole open
+     for its full HOLE_TICKS after the crumble finishes, on top of the dig
+     itself, so a hole is never open for less time than before. */
+  openHole(tx, ty, -DIG_TICKS);
   sfx("shoot");
 }
 
+/* Nothing left to decide: the hole already exists, so this is just the brace
+   the runner holds while the brick comes apart. */
 function processDig() {
   const d = digging;
   runner.anim = "shoot";
   runner.face = d.dir;
-
-  /* The original re-validates the shot every single tick (CODE 1 @0x51ec and
-     @0x51f6): if the target stops being a brick, or the debris tile stops
-     being empty - a guard walking in makes it read GUARD - the dig is simply
-     abandoned.  There is no threshold past which it force-opens instead. */
-  if (map[d.x][runner.pos.y].act !== EMPTY || map[d.x][d.y].act !== BRICK) {
-    digging = null; terrainDirty = true; return;
-  }
   d.tick++;
   terrainDirty = true;
-  if (d.tick >= DIG_TICKS) { openHole(d.x, d.y); digging = null; }
+  if (d.tick >= DIG_TICKS) digging = null;
 }
 
-function openHole(x, y) {
+function openHole(x, y, t0) {
   map[x][y].act = EMPTY;
-  holes.push({ x: x, y: y, t: 0 });
+  holes.push({ x: x, y: y, t: t0 || 0 });
   terrainDirty = true;
 }
 
@@ -3712,23 +3729,28 @@ let scale = 3;      /* CSS px per art pixel, fractional */
 let PX = 1;         /* device px per art pixel, fractional */
 const CHROME = 8;   /* #wrap border (2px) + padding (2px), both sides */
 
+/* Which crumble mask to show `elapsed` into a window of `span` ticks: 0 for
+   the least eroded, MASKS.length-1 for the most, spread evenly and clamped. */
+function maskStage(elapsed, span) {
+  const i = Math.floor(elapsed * MASKS.length / span);
+  return Math.max(0, Math.min(MASKS.length - 1, i));
+}
+
 function tileSprite(x, y) {
   const c = map[x][y];
   switch (c.base) {
     case BRICK: {
-      if (digging && digging.x === x && digging.y === y) {
-        /* intact for the first half of the dig, then three stages of erosion -
-           the original leaves the brick whole until frame 12 of 24 */
-        const k = digging.tick - DIG_TICKS / 2;
-        if (k < 0) return SP.brick;
-        return k < 4 ? SP.brickMask0 : k < 8 ? SP.brickMask1
-             : k < 12 ? SP.brickMask2 : null;
-      }
+      /* The crumble runs the masks forward across the whole dig and the refill
+         runs the same masks backward across the warning, so the two read as one
+         animation played either way.  Both derive the stage from MASKS.length,
+         so adding a mask or retiming the dig needs no arithmetic here. */
+      if (digging && digging.x === x && digging.y === y)
+        return SP["brickMask" + maskStage(digging.tick - 1, DIG_TICKS)];
       for (const h of holes) {
         if (h.x !== x || h.y !== y) continue;
         const left = HOLE_TICKS - h.t;
-        if (left > HOLE_WARN) return null;
-        return left > HOLE_WARN / 2 ? SP.brickMask2 : SP.brickMask1;
+        if (left > HOLE_WARN) return null;                    /* wide open */
+        return SP["brickMask" + maskStage(left - 1, HOLE_WARN)];
       }
       return SP.brick;
     }
@@ -3776,10 +3798,18 @@ function actorSprite(a, isGuard) {
   switch (a.anim) {
     case "run":   return SP[pre + RUN_CYCLE[Math.floor(a.dist / 10) % 4] + flip];
     case "hang":  return SP[pre + HANG_CYCLE[Math.floor(a.dist / 10) % 4] + flip];
-    case "climb": return SP[pre + "climb" + (Math.floor(a.dist / 11) % 2 ? "_L" : "")];
+    /* Half a tile per flip.  The divisor has to divide the 40-unit tile or the
+       mirror lands somewhere different on every tile climbed and reads as a
+       jitter rather than a gait. */
+    case "climb": return SP[pre + "climb" + (Math.floor(a.dist / (LH / 2)) % 2 ? "_L" : "")];
     case "fall":  return SP[pre + "fall" + flip];
     case "shoot": {
-      const lit = digging && digging.tick < DIG_TICKS - 1 && (digging.tick % 2) === 0;
+      /* One flash per crumble stage rather than per tick: at this tick rate an
+         every-other-tick strobe is a buzz, and pulsing with the damage ties the
+         muzzle to the brick coming apart. */
+      const span = DIG_TICKS / MASKS.length;
+      const lit = digging && digging.tick <= DIG_TICKS
+                  && ((digging.tick - 1) % span) < span / 2;
       return SP[pre + (lit ? "shoot" : "shootDim") + flip];
     }
     case "shake": return SP[pre + SHAKE_CYCLE[Math.floor(a.shakeTick / 4) % 4]];

@@ -241,6 +241,7 @@
   <span class="cmd tap" data-tap="KeyR" role="button" aria-label="restart level"><kbd>R</kbd> <i>restart</i></span>
   <span class="cmd"><span class="pair"><kbd class="tap" data-tap="BracketLeft" role="button" aria-label="previous level">[</kbd><kbd
        class="tap" data-tap="BracketRight" role="button" aria-label="next level">]</kbd></span> <i>level</i></span>
+  <span class="cmd tap" data-tap="KeyN" role="button" aria-label="switch level set"><kbd>N</kbd> <i>levels</i></span>
   <span class="cmd tap" data-tap="KeyM" role="button" aria-label="mute"><kbd>M</kbd> <i>mute</i></span></span>
 </div>
 
@@ -263,7 +264,7 @@
   </div>
 
   <div id="hud">
-    <span>LEVEL <span class="nw"><b id="hudLevel">1</b> / 86</span></span>
+    <span><b id="hudSet">JIM</b> LEVEL <span class="nw"><b id="hudLevel">1</b> / <b id="hudCount">86</b></span></span>
     <span id="tagline">Collect every chest, then climb out of the top.</span>
     <span>SOUND <span class="nw"><b id="hudSound">on</b></span></span>
   </div>
@@ -294,36 +295,42 @@
 "use strict";
 
 /* ========================================================================
-   Geometry.  Physics runs in 40x44 "logical units" per tile because that is
-   what makes the movement feel right: xMove of 8 gives exactly 5 ticks to
-   cross a tile, and yMove of 9 against a 44-unit tile deliberately does NOT
-   divide evenly, so vertical position is not periodic per tile.  The 18x17
-   pixel art is a completely separate concern, mapped at draw time.
+   Geometry.  Physics runs in 40x40 "logical units" per tile, moved 8 units
+   at a time, so an actor crosses a tile in exactly 5 steps - the same 5 in
+   both axes, which is what the 1984 Macintosh original does: its offsets are
+   bytes in [0,4] with the tile centre at 2, stepped by one per tick, running,
+   climbing, hanging and falling alike.  There is no separate fall speed.
+   The 18x17 pixel art is a completely separate concern, mapped at draw time
+   (the original blits on the same 18x17 pitch).
    ======================================================================== */
 const TW = 28, TH = 16;              // playfield, in tiles
 const AW = 18, AH = 17;              // art pixels per tile
-const LW = 40, LH = 44;              // logical units per tile
-const W2 = 20, H2 = 22, W4 = 10, H4 = 11;
-const XMOVE = 8, YMOVE = 9;
-const FPS = 23, TICK_MS = 1000 / FPS;
+const LW = 40, LH = 40;              // logical units per tile
+const W2 = 20, H2 = 20, W4 = 10, H4 = 10;
+const XMOVE = 8, YMOVE = 8;
 
-const DIG_TICKS   = 11;   // runner frozen this long while shooting
-const DIG_LIMIT   = 8;    // guard entering the debris tile before this aborts
-const HOLE_TICKS  = 187;  // hole lifetime once open
-const HOLE_WARN   = 20;   // refill masks play over the final N ticks
-const SHAKE_TICKS = 67;   // guard struggles in a hole this long
-const BORN_TICKS  = 10;
+/* The original is paced by a VBL task: it arms a counter with the Options
+   menu's speed setting and spins until the 60.15 Hz retrace has counted it
+   down.  The three menu settings are delays of 2, 3 and 4 retraces - so the
+   fastest, which is the only sane way to play, is 60.15/2 ticks per second.
+   Nothing else in the game varies with the setting, so every count below is
+   the same at any speed. */
+const FPS = 60.15 / 2, TICK_MS = 1000 / FPS;
+
+const DIG_TICKS   = 24;   // runner frozen this long while shooting
+const HOLE_TICKS  = 180;  // hole lifetime once open
+const HOLE_WARN   = 20;   // refill art plays over the final N ticks, in 2 stages
+const SHAKE_MOVES = 38;   // guard's hole countdown - in guard MOVES, not ticks
+const SHAKE_WOBBLE = 12;  // ... at or below this it wobbles in place
+const SHAKE_CLIMB  = 6;   // ... at or below this it climbs out
+const BORN_TICKS  = 20;   // materialising, counted every tick
 const DIE_TICKS   = 30;   // death animation, then the level reloads
 
-/* Lethal range, in logical units, against a tile of 40 x 44.  A sprite fills
-   its whole tile, so requiring |dx| < DEATH_X and |dy| < DEATH_Y means the two
-   sprites must overlap by roughly two thirds before contact counts.  This is
-   the single source of truth for lethality: tile-entry no longer kills on its
-   own, because a guard crossing a tile boundary is still 16 units (0.4 of a
-   tile) away and killing there reads as dying at a distance.
-   No tunnelling: the fastest closing speed is 16/tick across and 18/tick
-   vertically, both well inside the 24 and 28 unit windows below. */
-const DEATH_X = 12, DEATH_Y = 14;
+/* Horizontal offsets the original walks a trapped guard through while it
+   wobbles, indexed by (shakeLeft - SHAKE_CLIMB - 1).  Straight out of the
+   6-byte table at CODE 1 + 0x1eb0 - there it reads 2,1,2,3,2,1 against a
+   centre of 2, which is these signed offsets times our 8 units per step. */
+const WOBBLE = [0, -8, 0, 8, 0, -8];
 
 /* Tiles */
 const EMPTY=0, BRICK=1, STEEL=2, LADDER=3, ROPE=4, TRAP=5, HLADDER=6,
@@ -900,9 +907,11 @@ function buildAtlas() {
 }
 
 /* ========================================================================
-   Level data.  86 levels, decoded from jims-levels.bin (Apple II style
-   nibble-packed level disk: 224 bytes per level, 448 nibbles = 28x16 tiles
-   row-major, low nibble = left tile, high nibble = right tile).
+   Level data.  Two sets, both decoded from the original nibble-packed level
+   files in original-files/ (Apple II style level disk: a 262-byte header,
+   then 224 bytes per level, 448 nibbles = 28x16 tiles row-major, low nibble
+   = left tile, high nibble = right tile; the first all-zero level ends the
+   set, which is how one file holds 86 and the other 30).
 
        .  empty          X  trap (false brick, drawn as #)
        #  brick          S  hidden ladder (appears when all gold is taken)
@@ -914,7 +923,7 @@ function buildAtlas() {
    tile types; both were isolated cells in open space and are mapped to
    empty.  Every other level re-encodes byte-identically to the original.
    ======================================================================== */
-const LEVELS = [
+const JIM_LEVELS = [
 /*   1 */
   "...........P................" +
   ".....##....S...############." +
@@ -2379,6 +2388,538 @@ const LEVELS = [
   "##########H#################",
 ];
 
+/* ------------------------------------------------------------------------
+   Stephen Linhart's 30 levels, decoded from
+   original-files/stephen-linhart-levels.bin.  Every one of the 30
+   re-encodes byte-identically to the original file.  They lean much
+   harder on the engine than Jim's do - 29 of the 30 have the engine's
+   maximum of five guards and only three chests, several put two or more
+   guards on the same row, and level 27 is half false brick - which is
+   why the timing and chase rules had to be measured against the
+   original rather than guessed.
+   ------------------------------------------------------------------------ */
+const LINHART_LEVELS = [
+/*   1 */
+  "HHH.HHH.HHH.HHH.H.H.H.H.S..G" +
+  "H...H.H.H...H.H.H.H.H.H.S..." +
+  "HHH.H.H.HH..HHH.HH...H..S..." +
+  "..H.H.H.H...H.H.H.H..H..S..." +
+  "HHH.H.H.HHH.H.H.H.H..H..S..." +
+  "........................S..." +
+  "H...HHH.H.H.HHH.H...HHH.S..." +
+  "H...H...H.H.H...H...H...S..." +
+  "H...HH..H.H.HH..H...HHH.S..." +
+  "H...H...H.H.H...H.....H.S..." +
+  "HHH.HHH..H..HHH.HHH.HHH.S..." +
+  "........................S..." +
+  "HHHHHHHHHHHHHHHHHHHHHHHSS..." +
+  ".......H.......H............" +
+  ".....P.H.......H............" +
+  ".....##H###X###H##....$.....",
+/*   2 */
+  "$............G.............." +
+  "H............H.............." +
+  "H............H.............." +
+  "H............H.............." +
+  "H............H.............." +
+  "H....G......GH......G......G" +
+  "HHHHHHHHHHHHHHHHHHHHHHHHHHHH" +
+  ".............H.............H" +
+  ".............H.............H" +
+  ".............H.............H" +
+  ".............H.............H" +
+  ".............H.............H" +
+  ".............H.............H" +
+  ".............H.............H" +
+  "..........P..H.............H" +
+  ".......H###########H.......H",
+/*   3 */
+  ".G......G...G....G......G..." +
+  "####H####H##X##H###X#####H##" +
+  "....H....H..H.PH...-.....H.." +
+  "##H###H-.H...H####H.#...###H" +
+  "..H..#H.####.H....H.#..##..H" +
+  ".H##.#H......H.###..#.#.$H##" +
+  ".H.....#...##H...H..#H...H.#" +
+  "#H#####$.#H..H..#.#...###H.." +
+  "#H#...####..#H#...#####..##H" +
+  "#H.#..H....#.H.#H........#.H" +
+  ".H..#..H#...#H#..#..#H#..#.H" +
+  ".###.#.H#....H......#H#H#.##" +
+  "...$...H#H##.H.####H#H......" +
+  ".######H#H...H.....H#H#####." +
+  ".......H#H...H.....H#H......" +
+  "############################",
+/*   4 */
+  "########.###################" +
+  "#..G..##H...G....##G.....G##" +
+  "#X##############H#####H#####" +
+  "#X........####..H.....H##..#" +
+  "#####H#H############H####H##" +
+  "#$...H#H........##$#H....H##" +
+  "#####H#########H######H#####" +
+  "##...H....##...H......H#...#" +
+  "##H#############H#######H###" +
+  "#.H...#.........H#......H.##" +
+  "#####H#######H########H##H##" +
+  "##...H...###.H........H#.H.#" +
+  "###H########H###############" +
+  "#..HG.......H.............##" +
+  "#########################H##" +
+  "##$......................HP#",
+/*   5 */
+  "..........H-----------------" +
+  "..........H...P............." +
+  "..........H................." +
+  "..........H................." +
+  "..........H.GGGGG..........." +
+  "..........H..$.............." +
+  "..........H................." +
+  "..........H....$............" +
+  "..........H................." +
+  "..........H................." +
+  "..........H......######$...." +
+  "..........H......#.........." +
+  "..........H......#....#HHHHH" +
+  "..........H......#....#....." +
+  "..........H...........#....." +
+  "###########X################",
+/*   6 */
+  "S.......S...G..G....-......P" +
+  "S.......S.G.==X=====X=======" +
+  "#XH########............#...." +
+  "..H..#.#.H......----H..#=#=H" +
+  "..H..###.H...#.#....H....X#H" +
+  "..H......H....#.....H----#=H" +
+  "..H......H...#.#....H....=#H" +
+  "..H.$..G.H..........H......H" +
+  "..H......H......$...H......H" +
+  "..H......H....------H......H" +
+  "..H------H..........H......H" +
+  ".........H..........H......H" +
+  "G........H.=.............$.H" +
+  "####X########X#########X####" +
+  "...#.#......#.#.......#.#..." +
+  "...###......###.......###...",
+/*   7 */
+  "..---........-.........P.$-G" +
+  "..-H.-......-.-#####...==H==" +
+  ".-S..##-...-HG#-=.=##=......" +
+  ".-S#.G#.-.=-=##.#.#...#.HHH." +
+  ".-S=.=.#.....#..-.G##==H-#H." +
+  "-#S#.....-..G#....-=###-=.H." +
+  "-=S.....-...#.H.#..H.#-X=..H" +
+  "-HS..SSSS..-##.....----=...H" +
+  "-S...S.-#S.#.-.......-.....H" +
+  ".HSSSS.=.#S.=.-.=.#$#-.-..=." +
+  "#=S..=-=#==H....-.-#..-....." +
+  "#HS.-.#...#.S..=..-....--..." +
+  "##S-..#.....S........-.-----" +
+  "=HS###....=#S..-.......#.--." +
+  ".H........SSS.......H.##..=." +
+  "HH........S#S.$..####.......",
+/*   8 */
+  ".....H..............H......." +
+  ".....H..............H......." +
+  ".....H..............H......G" +
+  "-----H------.-------H-------" +
+  "$....H..........$...H......$" +
+  ".....H..............H......." +
+  "G....H..............H......." +
+  "-----H------.-------H-------" +
+  ".....H..............H......." +
+  ".....H..............H......." +
+  "G....H..............H......." +
+  "-----H------.-------H-------" +
+  ".....H..............H......." +
+  ".....H..............H......." +
+  ".....H..............H......." +
+  ".....HG............PH......G",
+/*   9 */
+  "...........S................" +
+  "...........S################" +
+  "###########S.G...........H.." +
+  "...........S.#S##########H.." +
+  "...........S..#..........H.." +
+  ".....------S.#.#.........H.." +
+  ".........H...............H.." +
+  "...#G#...H.....G.........H.." +
+  "....#....H...#S##########H.." +
+  ".........H....#..........H.." +
+  "...SSSSSSH...#.#.........H.." +
+  "..$S$....H...............H.." +
+  "..XSX....H.....G.........H.." +
+  "...#.....H#..#S##########HG." +
+  ".........H....#..........H.." +
+  "$..S######S..#.#.........HP.",
+/*  10 */
+  "..........S..P.............." +
+  "..........S................." +
+  "..........S................." +
+  "..........S..G.............." +
+  "..........SG................" +
+  "..........S.$..............." +
+  "..........S$G..............." +
+  "..........S................." +
+  "..........S................." +
+  "..........S................." +
+  "..........S................." +
+  "G.........S..$.............." +
+  "#H........S...........G....." +
+  "##H.......S........H#####H.." +
+  "###H......S....H##########H." +
+  "############################",
+/*  11 */
+  "....G=......................" +
+  ".H====......................" +
+  ".H.........................." +
+  ".H.........$.P.............." +
+  "S============###$..........G" +
+  "S............X##============" +
+  "S..........................." +
+  "S..........................." +
+  "S..........................." +
+  "S..........................." +
+  "S..........................." +
+  "S............$.............." +
+  "H------------S.............." +
+  "H..........................." +
+  "H..........................." +
+  "H......................G.G.G",
+/*  12 */
+  "......#.........#..........#" +
+  "#G.H###..G#.....###...H.H###" +
+  "###H....###..G#H....H#.#H..." +
+  "....#H.....H###H..H###.###H." +
+  "..###.#H..#H....#GH.......H#" +
+  "#.....###H###...###H..G#H###" +
+  "###H#$...H....#H...H.###H..." +
+  "....###..H.H###H.H#.H...H#H." +
+  ".H#....H#.#H....###.H..###H$" +
+  ".H###.###.###H......H#....H#" +
+  "#............H#....###..H###" +
+  "###..H#.....###.......H#H..." +
+  "....#H###.......#H....H###H." +
+  ".H###H...$#H.H###H...#H...H#" +
+  "#H...H#.###.#H..PH#..###H###" +
+  "###.###.....###.###.....H...",
+/*  13 */
+  "............S..G............" +
+  "...........$S###H..........." +
+  "############S...H...G......G" +
+  "......H.....SP..H###########" +
+  "......H.....S...H..........." +
+  "......HSSSSSS...H..G....G..." +
+  "#H######....S...###########H" +
+  ".H..........S..............H" +
+  ".H..........S--............H" +
+  "######H#.---S...#H##########" +
+  "......H.#...S...#H.........." +
+  "......H.X...S...#H.........." +
+  "#H#######...S...###########H" +
+  ".H......#...S...#..........H" +
+  ".H......#########..........H" +
+  "H######H..$.#.$..H#########H",
+/*  14 */
+  ".......S...................." +
+  ".......S........P..........." +
+  "#######S########H###########" +
+  ".......S........H..........." +
+  ".......S........H......####." +
+  "......$S........H......XXXX." +
+  "......#S........H......XXXX." +
+  ".......S........H......XXXX." +
+  ".......S........H......XXXX." +
+  ".......S........H......X$.X." +
+  "######.S########H......####." +
+  ".......S.......#H......XXXX." +
+  ".......S.......#H..........." +
+  ".......S.......#H##########S" +
+  ".......S.......#H....GGGGG#S" +
+  ".......S......$############S",
+/*  15 */
+  "............................" +
+  "................S..........." +
+  "..............--H..........." +
+  "................H..........." +
+  "...........#.#..H..........." +
+  "............#...H..........." +
+  "...........#$#..H..........." +
+  "................H..........." +
+  "............$...H..........." +
+  "................H..........." +
+  "............$...H..........." +
+  "................H..........." +
+  "................H..........." +
+  "................H..........." +
+  "................H..........." +
+  ".....GGGGG....P.H...........",
+/*  16 */
+  "G.....G.......G....G.......G" +
+  "$...S.$...............S....$" +
+  "####S#################S#####" +
+  "....S.................S....." +
+  "....S.........P.......S....." +
+  "########S################S##" +
+  "........S................S.." +
+  "........S................S.." +
+  "#############S####S#########" +
+  ".............S....S........." +
+  ".............S....S........." +
+  "####S#########S#########S###" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................",
+/*  17 */
+  ".G...G....G...G.....G......S" +
+  "H..........................S" +
+  "#############H#######X######" +
+  ".............H.$...........$" +
+  "H###=X=#=#=#=H============XH" +
+  "H............S.............H" +
+  "######X#############H#######" +
+  "......H......P......H......." +
+  "H#####X####################H" +
+  "H..........................H" +
+  "###X#########H##############" +
+  ".............H.............." +
+  "H##.#########H#############H" +
+  "H--------------------------H" +
+  "H#########################X#" +
+  "H..........................$",
+/*  18 */
+  "............................" +
+  "........S............G......" +
+  ".#.#.#.#S#.#.#.#.#.#.#.#.#.#" +
+  "........S.........G........." +
+  "#.#.#.#S#.#.#.#.#.#.#.#.#.#." +
+  ".......S.......G............" +
+  ".#.#.#.#S#.#.#.#.#.#.#.#.#.#" +
+  ".......PS...G..............." +
+  "#.#.#.#S#.#.#.#.#.#.#.#.#.#." +
+  ".......S.G..S.S.S.S........." +
+  ".#.#.#.#S#.#.#.#S#.#.#.#.#.#" +
+  "........S.......SS$........." +
+  "#.#.#.#S#.#.#.#S#.#.#.#.#.#." +
+  ".......SS......SS$S.S.S.S..." +
+  ".#.#.#.#.#.#.#S#.#.#.#.#.#S#" +
+  "..............S.$.........S.",
+/*  19 */
+  "P..........................." +
+  "SS.....G..G.....G...G..G...." +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H###########$.#############H" +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H############.$############H" +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H###########$.#############H" +
+  "H############X#############H" +
+  "H############X#############H" +
+  "H..........................H",
+/*  20 */
+  "............................" +
+  "========H######S##.=========" +
+  "........H#...#GS.#H........G" +
+  "........H#...#GSG#H........G" +
+  "........H#..$##S##H........." +
+  "........H#X###.S.-H........." +
+  "........H#.....S..H........." +
+  "........H#....#S#.H........." +
+  "........H#....#S#.H........." +
+  "........H#########H........." +
+  "........H#...#...#H........." +
+  "........H#.$.#....H-------.." +
+  "........HX##X#####H......-#." +
+  "........H#........H......-#." +
+  "........H#.......#H......-#." +
+  "P.......H#########H.......#$",
+/*  21 */
+  "H.........G..SG...G...G...G." +
+  "H............S.............." +
+  "#........#...S.............#" +
+  "H.########...S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "$............S.............." +
+  "H............S.............." +
+  "H............S.............." +
+  "H......P.....S............$$" +
+  "#SSSSS#######H##############",
+/*  22 */
+  ".GGGGG......................" +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################......." +
+  "S####################P.$.$.$" +
+  "S###########################" +
+  "S###########################" +
+  "S###########################" +
+  "S###########################" +
+  "S###########################" +
+  "S....................#######",
+/*  23 */
+  "..G....G.....G.....G.....G.." +
+  "..............S............." +
+  "SSSSSSSSSSSSSSSSSSSSSSSSSSSS" +
+  "S......$.....S...$.$.......S" +
+  "S............S.............S" +
+  "S............S.............S" +
+  "S............S.............S" +
+  "S............S..P..........S" +
+  "############################" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................",
+/*  24 */
+  "P........G###=#####.#######." +
+  "###################S###=###S" +
+  "##...H##X###H...###S#######S" +
+  "#####H##X.##H######S#######S" +
+  "#####H######H##X##GSSSSSSSSS" +
+  "#####H#=.$.#H##X.####X#####S" +
+  "##.##H######H########X#####S" +
+  "#####H##X###H###$##=#X#=###S" +
+  "#####H##X###H###X####X#####S" +
+  "##=##H##X###H###X####X#####S" +
+  "#####H..G..HH##...###X#####S" +
+  "###=#################X##=##S" +
+  "############=########X#####S" +
+  "#####################X#####S" +
+  "G...............G..........S" +
+  "########H##################$",
+/*  25 */
+  "...S...............P........" +
+  "...S.......................G" +
+  "...H#.......#......#.......#" +
+  "...H.#..#..#........#.-...#." +
+  "...H..#...#.....#....=$..#.." +
+  "...H...#.#..#.......#.#.#..." +
+  "...H....#....#.....#...X...." +
+  "...H..........#...-----....." +
+  "...H....$......#$#.........." +
+  "...H............X..........." +
+  "...H........................" +
+  "...H........................" +
+  "...H........................" +
+  "...H........................" +
+  "...H.....G...G...G....G....." +
+  "############################",
+/*  26 */
+  "P......G....G...G....G....G." +
+  "H##########################." +
+  "H######H###################." +
+  "H######H########H##########." +
+  "H=#####H########H#########H." +
+  "H$.....H........H.........H." +
+  "H......H........H.........H." +
+  "HHHHHH.H.HHHHHH.H.HHHHHHHHH." +
+  ".......H........H..........." +
+  ".......H........H..........." +
+  ".......H..H.....H..........$" +
+  "##########H################." +
+  "##########H#############H##." +
+  "##########H##########H##H##." +
+  "..........H..........H..H..." +
+  "..........H..........H..H..$",
+/*  27 */
+  "X#XXX.X#X.X.XX.P.XX..X#X..XX" +
+  "XX..XXXXXXXS.GX#.XXX#X.X.XXX" +
+  "XXX.XG..XXXX#HXXH##.XXXXX.X#" +
+  "X.X#XH#.X#XXXHXXXXXXXX.XX#XX" +
+  "#XXXXHXXXX.XXHX.XX..X.#X.XXX" +
+  "XXXXXHXX.X..XHXX..X#XXX#XXXG" +
+  "G...HHX#.XX#.HXX#XXX.X.$GXX#" +
+  "X###XHXXX...XH...S.X#.XHX..X" +
+  "XXXXXHX.###XXX###SXX.XXHX#XX" +
+  "...XXHX#.X...XXX.S.SX.XHXXXX" +
+  "X#X.XHXX..X#..#X.X#HX#XH...X" +
+  "XX..#HX.X#XX#X#XXXXS..XHXX#X" +
+  ".X#XXHX.X.X.X...XXXX###H.HX." +
+  "#X.XXH..$XXXX##...XXXX#X#HX." +
+  "X.X$.HXH#XX.X..##...X#XX.H#X" +
+  "X.X#.H.HX.X.....XX#X.....HXX",
+/*  28 */
+  "...G..SG...G...P...G...G...." +
+  "......S....................." +
+  "......S....................." +
+  "...HHHHHHHHHHHHHHHHHHHHH...." +
+  "...H..S......S......S..H...." +
+  "...H.#S#....#S#....#S#.H...." +
+  "...H..#......#......#..H...." +
+  "...H.#$#....#$#....#$#.H...." +
+  "...H...................H...." +
+  "...HHHHHHHHHHHHHHHHHHHHH...." +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................" +
+  "............................",
+/*  29 */
+  ".G...G...G....P...G......G.." +
+  ".......S#$#..#.#.....#S#...." +
+  "#.#....S.X....X..#$#..#....." +
+  ".X..#$#S..#S#.....X.....#.#." +
+  ".....X.S...#..#S#...#S#..X.." +
+  "......#S#S----.#.#.#.#......" +
+  ".S#S#..#.S..#S#...X...#S#.#S" +
+  ".S.#.....S...#.........#...#" +
+  "S#S#..S#S#S....H#S#.....#S#." +
+  "S.#H#S#.#.S....H.#.#S#...X.." +
+  "S-.H.#....#S##S#H...#.#S#..." +
+  "#S#H#.#....#..#.H......#...." +
+  ".#.H.#..#S#...-.H#S#S...H#S#" +
+  "...H.....#.-H#S#..#..H#S#.#." +
+  "...H........S.#......H.#...." +
+  "...H........S........H......",
+/*  30 */
+  "............................" +
+  "H#############X#####HHH####." +
+  "H...........P.$.....H##H###." +
+  "H#####X####H##.######..S...." +
+  "H..........H........#..S...." +
+  "H..........H........#..S...." +
+  "H.....#.#..H........#..S...." +
+  "H......#...H........#..S...." +
+  "H......$...H........#..S...." +
+  "H..........H........#..S...." +
+  "H..........H........#..S...." +
+  "H..........H........#..S...." +
+  "H......####H#####---#..S...." +
+  "H..........H...#....#..S...." +
+  "H...................#..S...." +
+  "H...GGGGG...........#.$S....",
+];
+
+/* The active set.  `LEVELS` stays the single name the rest of the game reads,
+   so nothing below here has to know that there is more than one set. */
+const LEVEL_SETS = [
+  { name: "Jim's levels", short: "JIM", levels: JIM_LEVELS },
+  { name: "Stephen Linhart's levels", short: "LINHART", levels: LINHART_LEVELS }
+];
+let setIndex = 0;
+let LEVELS = LEVEL_SETS[0].levels;
+
 /* ========================================================================
    Game state
    ======================================================================== */
@@ -2389,13 +2930,15 @@ let level = 0, state = "ready";
 let terrainDirty = true;
 let deadTimer = 0, passTimer = 0;
 let moveOffset = 0, moveId = 0;
+let hiddenLadders = [];
+let luckCounter = 0;
 
 const el = function (id) { return document.getElementById(id); };
 
 function newActor(x, y) {
   return { pos: { x: x, y: y, xOffset: 0, yOffset: 0 },
            action: A_STOP, face: 1, dist: 0, anim: "stand",
-           hasGold: 0, shakeTick: 0, bornTick: 0, dieTick: 0, holePos: null,
+           hasGold: 0, shakeTick: 0, bornTick: 0, dieTick: 0,
            falling: false, fallFrom: 0 };
 }
 
@@ -2408,7 +2951,7 @@ function newActor(x, y) {
 function leaveTile(x, y) {
   const c = map[x][y];
   let t = c.base;
-  if (t === BRICK || t === HLADDER || t === GOLD) t = EMPTY;
+  if (t === BRICK || t === GOLD) t = EMPTY;
   c.act = t;
 }
 
@@ -2422,17 +2965,34 @@ function buildLevel(n) {
   const s = LEVELS[n];
   map = []; guards = []; runner = null; holes = []; digging = null;
   goldLeft = 0; goldComplete = false; moveOffset = 0; moveId = 0;
+  hiddenLadders = [];
+  /* The original only zeroes its counter when a new game starts, so it drifts
+     across levels and restarts.  We zero it per level instead, which makes a
+     level replay identically every time - the same board and the same inputs
+     always give the same guards. */
+  luckCounter = 0;
   for (let x = 0; x < TW; x++) {
     map[x] = [];
     for (let y = 0; y < TH; y++) map[x][y] = { base: EMPTY, act: EMPTY, trapSeen: false };
   }
-  for (let y = 0; y < TH; y++) {
-    for (let x = 0; x < TW; x++) {
+  /* Bottom-to-top, right-to-left.  The original unpacks a level from (27,15)
+     back to (0,0) (CODE 1 @0x2c0e / @0x2c2a) and registers each guard as it
+     meets it, so its guard list is in reverse reading order - and that list
+     order is the round-robin turn order, which decides who moves first when a
+     tick hands out fewer steps than there are guards.  It also decides which
+     five survive the cap on an over-populated level. */
+  for (let y = TH - 1; y >= 0; y--) {
+    for (let x = TW - 1; x >= 0; x--) {
       const t = CHAR2TILE[s[y * TW + x]];
       const c = map[x][y];
       switch (t) {
         case GOLD:    c.base = GOLD;    c.act = EMPTY; goldLeft++; break;
-        case HLADDER: c.base = HLADDER; c.act = EMPTY; break;
+        /* A hidden ladder is not put on the board at all - the original
+           lifts it out into a side list and leaves the cell genuinely bare
+           (CODE 1 @0x2c5c), which is why a buried guard can come back on one
+           and why one gives a charging guard no footing.  The original's list
+           holds 45; the most any level in either set needs is 44. */
+        case HLADDER: c.base = EMPTY; c.act = EMPTY; hiddenLadders.push([x, y]); break;
         case GUARD:
           c.base = EMPTY;
           if (guards.length < 5) { c.act = GUARD; guards.push(newActor(x, y)); }
@@ -2452,14 +3012,10 @@ function buildLevel(n) {
 }
 
 function revealLadders() {
-  for (let x = 0; x < TW; x++) {
-    for (let y = 0; y < TH; y++) {
-      const c = map[x][y];
-      if (c.base === HLADDER) {
-        c.base = LADDER;
-        if (c.act === EMPTY) c.act = LADDER;
-      }
-    }
+  for (const [x, y] of hiddenLadders) {
+    const c = map[x][y];
+    c.base = LADDER;
+    if (c.act === EMPTY) c.act = LADDER;
   }
   goldComplete = true;
   terrainDirty = true;
@@ -2475,10 +3031,24 @@ function decGold() {
    Movement primitives.  Crossing rule: when the offset passes the tile
    half-width, hand over to the next tile and fold the offset back.
    ======================================================================== */
+/* Step a perpendicular offset one notch toward the middle of the tile.  The
+   original does this on every move that actually happens - a vertical move
+   pulls the horizontal offset in and vice versa (CODE 1 @0x5fcc, @0x5fec) -
+   and never on a move that was blocked. */
 function towardZero(v, step) {
   if (v > 0) return Math.max(0, v - step);
   if (v < 0) return Math.min(0, v + step);
   return 0;
+}
+
+/* True when the actor has reached, or gone past, the middle of its tile in
+   the direction it is heading - the only moment the original consults the
+   tile ahead. */
+function atCentreFor(p, action) {
+  if (action === A_LEFT)  return p.xOffset <= 0;
+  if (action === A_RIGHT) return p.xOffset >= 0;
+  if (action === A_UP)    return p.yOffset <= 0;
+  return p.yOffset >= 0;                 /* A_DOWN and A_FALL */
 }
 
 /* ========================================================================
@@ -2552,7 +3122,15 @@ function runnerStep(action, blocked) {
     }
   }
 
-  if (!blocked) {
+  /* The way ahead is only consulted once the actor has reached the middle of
+     its tile, and a blocked actor then changes nothing at all - it does not
+     edge back toward the centre.  Those two rules together are why everything
+     comes to rest exactly centred against a wall or on a floor, with no
+     re-centring code anywhere, and they are what stops an actor briefly
+     blocked by a moving guard from sliding backwards.  Every direction in the
+     original is gated this way (CODE 1 @0x59b6, @0x5a68, @0x5b56, @0x5c4e for
+     guards, @0x4e0e and friends for the runner). */
+  if (!blocked && atCentreFor(p, action)) {
     if (action === A_LEFT || action === A_RIGHT) {
       const nx = p.x + (action === A_LEFT ? -1 : 1);
       if (nx < 0 || nx >= TW) blocked = true;
@@ -2582,52 +3160,37 @@ function runnerStep(action, blocked) {
     case A_RIGHT: {
       const d = action === A_LEFT ? -1 : 1;
       runner.face = d;
-      if (blocked) {
-        const before = p.xOffset;
-        p.xOffset = towardZero(p.xOffset, XMOVE);
-        runner.dist += Math.abs(before - p.xOffset);
-      } else {
+      if (!blocked) {
         p.xOffset += d * XMOVE;
         runner.dist += XMOVE;
         if (d < 0 && p.xOffset < -W2) { leaveTile(p.x, p.y); p.x--; p.xOffset += LW; map[p.x][p.y].act = RUNNER; }
         else if (d > 0 && p.xOffset > W2) { leaveTile(p.x, p.y); p.x++; p.xOffset -= LW; map[p.x][p.y].act = RUNNER; }
+        p.yOffset = towardZero(p.yOffset, YMOVE);
       }
-      p.yOffset = towardZero(p.yOffset, YMOVE);
       runner.anim = (map[p.x][p.y].base === ROPE) ? "hang" : "run";
       break;
     }
     case A_UP: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset -= YMOVE;
         runner.dist += YMOVE;
         if (p.yOffset < -H2) { leaveTile(p.x, p.y); p.y--; p.yOffset += LH; map[p.x][p.y].act = RUNNER; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       runner.anim = "climb";
       break;
     }
     default: {   /* A_DOWN and A_FALL */
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset += YMOVE;
         runner.dist += YMOVE;
-        if (p.yOffset > H2) {
-          leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; map[p.x][p.y].act = RUNNER;
-          /* catch a rope on the way down */
-          if (action === A_FALL && map[p.x][p.y].base === ROPE && p.yOffset < 0) {
-            p.yOffset = 0;
-            runner.anim = "hang";
-            afterRunnerStep();
-            return;
-          }
-        }
+        if (p.yOffset > H2) { leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; map[p.x][p.y].act = RUNNER; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
-      if (action === A_FALL) {
-        runner.anim = "fall";
-        if (!onRope) runner.dist += 0;
-      } else runner.anim = "climb";
+      /* No explicit rope catch: the fall rule already treats a rope as solid
+         at the tile centre, so a fall through one stops there by itself. */
+      runner.anim = action === A_FALL ? "fall"
+                  : onRope ? "hang" : "climb";
       break;
     }
   }
@@ -2643,26 +3206,31 @@ function afterRunnerStep() {
     c.base = EMPTY; terrainDirty = true;
     sfx("gold"); decGold();
   }
-  checkCollision();
 }
 
-/* The pickup window is why xMove(8) < W4(10) and yMove(9) < H4(11) matter:
-   an actor always lands inside it while crossing the tile centre. */
+/* Dead centre, and only dead centre.  The original gates gold pickup on both
+   sub-tile offsets being exactly 2 of 5 - the tile's middle step (CODE 1
+   @0x635c) - which our signed offsets write as zero.  Because a step is
+   always a whole 8 units out of 40, an actor crossing a tile always lands on
+   the centre exactly once, so nothing can be skipped over. */
 function inPickupWindow(p) {
-  if (p.xOffset === 0 && p.yOffset >= 0 && p.yOffset < H4) return true;
-  if (p.yOffset === 0 && p.xOffset >= 0 && p.xOffset < W4) return true;
-  if (p.y < TH - 1 && map[p.x][p.y + 1].base === LADDER && p.yOffset < H4 && p.yOffset > -H4) return true;
-  return false;
+  return p.xOffset === 0 && p.yOffset === 0;
 }
 
-function checkCollision() {
-  const p = runner.pos;
-  const rx = p.x * LW + p.xOffset, ry = p.y * LH + p.yOffset;
-  for (const g of guards) {
-    if (g.action === A_REBORN) continue;
-    const gx = g.pos.x * LW + g.pos.xOffset, gy = g.pos.y * LH + g.pos.yOffset;
-    if (Math.abs(gx - rx) < DEATH_X && Math.abs(gy - ry) < DEATH_Y) return killRunner();
-  }
+/* Lethality is pure tile occupancy, and it is one-directional: in the whole
+   of the original there are exactly five places that set the death flag, and
+   all five are in guard movement, at the moment a guard finishes crossing
+   into a tile whose occupancy reads RUNNER.  Walking into a guard yourself
+   does not kill you - the runner's own movement code has no death test at
+   all.  (The other two ways to die are a hole closing on you and the Abort
+   Man menu item.)
+   This is what makes a guard crossing a tile boundary lethal at up to 0.8 of
+   a tile of centre separation, and it is why the earlier symmetric 12x14
+   proximity box - about 0.3 of a tile, and lethal on the runner's own step -
+   made tight corridors behave differently from the original. */
+function guardEnteredRunner(g) {
+  if (g.action === A_REBORN) return;
+  if (g.pos.x === runner.pos.x && g.pos.y === runner.pos.y) killRunner();
 }
 
 function killRunner() {
@@ -2690,7 +3258,9 @@ function tryShoot(dir) {
   if (map[tx][p.y].act !== EMPTY) return afterRunnerStep();
   if (map[tx][p.y].base === GOLD) return afterRunnerStep();
   p.xOffset = 0; p.yOffset = 0;
-  digging = { x: tx, y: ty, tick: 0, dir: dir };
+  /* frame 1, not 0: the tick that starts the dig is itself the first of the
+     DIG_TICKS the original counts */
+  digging = { x: tx, y: ty, tick: 1, dir: dir };
   terrainDirty = true;
   sfx("shoot");
 }
@@ -2700,13 +3270,12 @@ function processDig() {
   runner.anim = "shoot";
   runner.face = d.dir;
 
-  /* A guard walking into the debris tile either cancels the shot outright or,
-     late enough in, forces the hole open early so the guard drops into it. */
-  if (map[d.x][runner.pos.y].act === GUARD) {
-    if (d.tick < DIG_LIMIT) { digging = null; terrainDirty = true; return; }
-    openHole(d.x, d.y);
-    digging = null;
-    return;
+  /* The original re-validates the shot every single tick (CODE 1 @0x51ec and
+     @0x51f6): if the target stops being a brick, or the debris tile stops
+     being empty - a guard walking in makes it read GUARD - the dig is simply
+     abandoned.  There is no threshold past which it force-opens instead. */
+  if (map[d.x][runner.pos.y].act !== EMPTY || map[d.x][d.y].act !== BRICK) {
+    digging = null; terrainDirty = true; return;
   }
   d.tick++;
   terrainDirty = true;
@@ -2723,7 +3292,7 @@ function processHoles() {
   for (let i = holes.length - 1; i >= 0; i--) {
     const h = holes[i];
     h.t++;
-    if (h.t >= HOLE_TICKS - HOLE_WARN) terrainDirty = true;
+    if (h.t >= HOLE_TICKS - HOLE_WARN) terrainDirty = true;   /* refill art */
     if (h.t >= HOLE_TICKS) {
       const c = map[h.x][h.y];
       if (c.act === RUNNER) killRunner();
@@ -2742,50 +3311,79 @@ function processHoles() {
 }
 
 /* ========================================================================
-   Guards.  Slowness is emulated by how many guards get a full-size step
-   each tick, not by giving them smaller steps.
+   Guards.  Slowness is how many guards get a full-size step each tick, not
+   smaller steps: a phase counter cycles 0,1,2 and the row for the current
+   guard count says how many steps to hand out that tick, round-robin.  The
+   original stores the same thing as a bit pattern and counts set bits
+   (CODE 1 @0x1eb6, dispatched at @0x5982); these are those numbers.
+   Row 1 gives a lone guard 2/3 of the runner's speed, not 1/2 - that is the
+   original's value, and it is the one number here that differs from
+   LodeRunner_TotalRecall, which retuned it.
+   The original also adds a difficulty tier to the row index, but that tier
+   only advances once you wrap past the last level of the set, so on a first
+   pass through 86 levels it is always zero.
    ======================================================================== */
 const movePolicy = [
-  [0, 0, 0, 0, 0, 0],
-  [0, 1, 0, 1, 0, 1],   /* one guard is deliberately slower than two */
-  [1, 1, 1, 1, 1, 1],
-  [1, 2, 1, 1, 2, 1],
-  [1, 2, 2, 1, 2, 2],
-  [2, 2, 2, 2, 2, 2],
-  [2, 2, 3, 2, 2, 3],
-  [2, 3, 3, 2, 3, 3],
-  [3, 3, 3, 3, 3, 3],
-  [3, 3, 4, 3, 3, 4],
-  [3, 4, 4, 3, 4, 4],
-  [4, 4, 4, 4, 4, 4]
+  [0, 0, 0],
+  [0, 1, 1],   /* 2/3 */
+  [1, 1, 1],   /* 1/2 */
+  [1, 2, 1],   /* 4/9 */
+  [1, 2, 2],   /* 5/12 */
+  [2, 2, 2]    /* 2/5 */
 ];
 
 function moveGuards() {
   if (!guards.length) return;
-  moveOffset = (moveOffset + 1) % 6;
-  let moves = movePolicy[Math.min(guards.length, 11)][moveOffset];
+  moveOffset = (moveOffset + 1) % 3;
+  let moves = movePolicy[Math.min(guards.length, movePolicy.length - 1)][moveOffset];
   while (moves-- > 0) {
-    moveId = (moveId + 1) % guards.length;
+    /* Pick, then advance.  The original's cursor is 1-based and it increments
+       before use, wrapping back to 1 rather than 0 (CODE 1 @0x5d6e), so the
+       first guard to move is the first in the list - which is the opposite of
+       advancing before picking from a 0-based array. */
     const g = guards[moveId];
-    if (g.action === A_IN_HOLE || g.action === A_REBORN) continue;
+    moveId = (moveId + 1) % guards.length;
+    /* A materialising guard still burns its turn, and so does a trapped one -
+       which is the whole reason a guard's time in a hole stretches out as the
+       guard count rises: the countdown ticks once per turn, not once per
+       frame. */
+    if (g.action === A_REBORN) continue;
+    /* Keyed on the countdown, not on the action: the countdown is the state,
+       exactly as in the original, and it has to keep ticking through the
+       climb-out or the guard never gets free. */
+    if (g.shakeTick > 0) { shakeStep(g); continue; }
     guardStep(g, bestMove(g));
     if (state !== "run") return;
   }
 }
 
+/* One turn for a guard sitting in a hole.  Three phases, all counted in
+   turns: sit still, wobble from side to side on the original's own 6-entry
+   offset table, then climb out.  Climbing is done by the ordinary mover,
+   because bestMove answers A_UP for free while the countdown runs. */
+function shakeStep(g) {
+  g.shakeTick--;
+  if (g.shakeTick > SHAKE_WOBBLE) { g.anim = "shake"; return; }
+  if (g.shakeTick > SHAKE_CLIMB) {
+    g.anim = "shake";
+    g.pos.xOffset = WOBBLE[g.shakeTick - SHAKE_CLIMB - 1];
+    return;
+  }
+  g.anim = "climb";
+  guardStep(g, bestMove(g));
+}
+
 function bestMove(g) {
   const p = g.pos, rp = runner.pos;
-  let sameLevelOnly = false;
 
-  /* A guard leaving a hole climbs straight up with no ladder, ignoring the
-     fall rule, until it is clear of the hole's row and column. */
-  if (g.action === A_CLIMB_OUT) {
-    if (p.y === g.holePos.y) return A_UP;
-    sameLevelOnly = true;
-    if (p.x !== g.holePos.x) g.action = A_STOP;
-  }
-
-  if (!sameLevelOnly) {
+  /* Trapped in a blasted brick with the countdown still running: climb
+     straight out.  No ladder needed, and gravity stays suspended until the
+     countdown expires, which is what stops the guard dropping back in.  The
+     original needs no state for this beyond the countdown itself - it just
+     asks whether it is standing in a brick (CODE 1 @0x621c). */
+  if (g.shakeTick > 0) {
+    if (map[p.x][p.y].base === BRICK) return A_UP;
+  } else {
     const cur = map[p.x][p.y].base;
     if (cur === LADDER || (cur === ROPE && p.yOffset === 0)) { /* supported */ }
     else if (p.yOffset < 0) return A_FALL;
@@ -2798,15 +3396,20 @@ function bestMove(g) {
   }
 
   /* Same-floor charge, deliberately ignoring walls: a guard will happily run
-     into a brick and stall.  That is authentic, not a bug. */
-  if (p.y === rp.y && runner.anim !== "fall") {
+     into a brick and stall.  That is authentic, not a bug.  The probe needs a
+     hold at the guard's own row, or the bottom of the board, or terrain
+     underfoot - and "terrain underfoot" is everything except open air and a
+     false brick, tested on the static layer, so a guard standing below does
+     not count and an unrevealed hidden ladder does not either
+     (CODE 1 @0x624c).  The original charges whether or not the runner is
+     falling. */
+  if (p.y === rp.y) {
     let x = p.x;
     while (x !== rp.x) {
       const cur = map[x][p.y].base;
       const nb = (p.y < TH - 1) ? map[x][p.y + 1].base : STEEL;
-      const guardBelow = p.y < TH - 1 && map[x][p.y + 1].act === GUARD;
-      if (cur === LADDER || cur === ROPE || nb === STEEL || nb === LADDER ||
-          nb === BRICK || guardBelow || nb === ROPE || nb === GOLD)
+      if (cur === LADDER || cur === ROPE || p.y >= TH - 1 ||
+          (nb !== EMPTY && nb !== TRAP))
         x += (x < rp.x) ? 1 : -1;
       else break;
     }
@@ -2857,7 +3460,7 @@ function scanFloor(g) {
       const nb = map[col][yy + 1].base;
       if (nb === BRICK || nb === STEEL) break;
       const cur = map[col][yy].base;
-      if (cur !== EMPTY && cur !== HLADDER) {
+      if (cur !== EMPTY) {
         if (col > 0) {
           const t = map[col - 1][yy + 1].base;
           if (t === BRICK || t === LADDER || t === STEEL || map[col - 1][yy].base === ROPE)
@@ -2894,10 +3497,14 @@ function scanFloor(g) {
     rate(yy, col, path);
   }
 
-  /* own column first so it wins ties, then left end inward, then right end */
+  /* own column first so it wins ties, then left end inward, then right end.
+     Climbing is not even considered from the top row - the original tests the
+     row against zero before every up-scan (CODE 1 @0x606a, @0x6110, @0x61ba),
+     and without that a guard already on row 0 rates "stay on row 0" as
+     reaching the runner's row and dithers instead of coming down. */
   let nb;
   if (y < TH - 1 && (nb = map[startX][y + 1].base) !== BRICK && nb !== STEEL) scanDown(startX, A_DOWN);
-  if (map[startX][y].base === LADDER) scanUp(startX, A_UP);
+  if (y > 0 && map[startX][y].base === LADDER) scanUp(startX, A_UP);
 
   let curPath = A_LEFT;
   x = leftEnd;
@@ -2907,7 +3514,7 @@ function scanFloor(g) {
       else break;
     }
     if (y < TH - 1 && (nb = map[x][y + 1].base) !== BRICK && nb !== STEEL) scanDown(x, curPath);
-    if (map[x][y].base === LADDER) scanUp(x, curPath);
+    if (y > 0 && map[x][y].base === LADDER) scanUp(x, curPath);
     x += (curPath === A_LEFT) ? 1 : -1;
   }
   return bestPath;
@@ -2924,27 +3531,31 @@ function guardStep(g, action) {
     if (nb !== LADDER && nb !== GUARD) action = A_FALL;
   }
 
-  if (action === A_LEFT || action === A_RIGHT) {
-    const nx = p.x + (action === A_LEFT ? -1 : 1);
-    g.face = action === A_LEFT ? -1 : 1;
-    if (nx < 0 || nx >= TW) blocked = true;
-    else {
-      const c = map[nx][p.y];
-      /* trap is tested on `base`, not `act`: otherwise, while the runner is
-         hiding inside a false brick, act reads RUNNER and guards walk in */
-      if (c.act === BRICK || c.act === STEEL || c.act === GUARD || c.base === TRAP) blocked = true;
-    }
-  } else if (action === A_UP) {
-    if (p.y <= 0) blocked = true;
-    else {
-      const c = map[p.x][p.y - 1];
-      if (c.act === BRICK || c.act === STEEL || c.act === TRAP || c.act === GUARD) blocked = true;
-    }
-  } else {
-    if (p.y >= TH - 1) blocked = true;
-    else {
-      const c = map[p.x][p.y + 1];
-      if (c.act === BRICK || c.act === STEEL || c.act === GUARD) blocked = true;
+  if (action === A_LEFT || action === A_RIGHT) g.face = action === A_LEFT ? -1 : 1;
+
+  /* Same centre-gated rule as the runner; see runnerStep. */
+  if (atCentreFor(p, action)) {
+    if (action === A_LEFT || action === A_RIGHT) {
+      const nx = p.x + (action === A_LEFT ? -1 : 1);
+      if (nx < 0 || nx >= TW) blocked = true;
+      else {
+        const c = map[nx][p.y];
+        /* trap is tested on `base`, not `act`: otherwise, while the runner is
+           hiding inside a false brick, act reads RUNNER and guards walk in */
+        if (c.act === BRICK || c.act === STEEL || c.act === GUARD || c.base === TRAP) blocked = true;
+      }
+    } else if (action === A_UP) {
+      if (p.y <= 0) blocked = true;
+      else {
+        const c = map[p.x][p.y - 1];
+        if (c.act === BRICK || c.act === STEEL || c.act === TRAP || c.act === GUARD) blocked = true;
+      }
+    } else {
+      if (p.y >= TH - 1) blocked = true;
+      else {
+        const c = map[p.x][p.y + 1];
+        if (c.act === BRICK || c.act === STEEL || c.act === GUARD) blocked = true;
+      }
     }
   }
 
@@ -2953,57 +3564,51 @@ function guardStep(g, action) {
     case A_LEFT:
     case A_RIGHT: {
       const d = action === A_LEFT ? -1 : 1;
-      if (blocked) p.xOffset = towardZero(p.xOffset, XMOVE);
-      else {
+      if (!blocked) {
         p.xOffset += d * XMOVE;
         g.dist += XMOVE;
         if (d < 0 && p.xOffset < -W2) { leaveTile(p.x, p.y); p.x--; p.xOffset += LW; crossed = true; }
         else if (d > 0 && p.xOffset > W2) { leaveTile(p.x, p.y); p.x++; p.xOffset -= LW; crossed = true; }
+        p.yOffset = towardZero(p.yOffset, YMOVE);
       }
-      p.yOffset = towardZero(p.yOffset, YMOVE);
       g.anim = (map[p.x][p.y].base === ROPE) ? "hang" : "run";
       break;
     }
     case A_UP: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset -= YMOVE;
         g.dist += YMOVE;
         if (p.yOffset < -H2) { leaveTile(p.x, p.y); p.y--; p.yOffset += LH; crossed = true; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       g.anim = "climb";
       break;
     }
     default: {
-      if (blocked) p.yOffset = towardZero(p.yOffset, YMOVE);
-      else {
+      if (!blocked) {
         p.yOffset += YMOVE;
         g.dist += YMOVE;
         if (p.yOffset > H2) { leaveTile(p.x, p.y); p.y++; p.yOffset -= LH; crossed = true; }
+        p.xOffset = towardZero(p.xOffset, XMOVE);
       }
-      p.xOffset = towardZero(p.xOffset, XMOVE);
       g.anim = action === A_FALL ? "fall" : "climb";
       break;
     }
   }
 
-  if (g.action !== A_CLIMB_OUT) g.action = action;
+  g.action = action;
   map[p.x][p.y].act = GUARD;
 
-  if (crossed) {
-    if (map[p.x][p.y].base === ROPE && action === A_FALL && p.yOffset < 0) {
-      p.yOffset = 0; g.anim = "hang";
-    }
-    guardCross(g);
-  }
+  if (crossed) guardCross(g);
 
-  /* dropped into a blasted hole */
-  if (action === A_FALL && map[p.x][p.y].base === BRICK && p.yOffset >= 0) {
-    p.yOffset = 0;
+  /* Dropped into a blasted hole.  The original arms the countdown when the
+     guard reaches the middle sub-tile step of the hole, not on entering it
+     (CODE 1 @0x5e96), which is why the guard visibly settles before it starts
+     struggling. */
+  if (action === A_FALL && map[p.x][p.y].base === BRICK && p.yOffset === 0) {
     g.action = A_IN_HOLE;
     g.anim = "shake";
-    g.shakeTick = 0;
+    g.shakeTick = SHAKE_MOVES;
     sfx("trap");
     if (g.hasGold > 0) {
       /* drop it on the tile above the hole if that tile is free, else it is
@@ -3019,7 +3624,7 @@ function guardStep(g, action) {
   }
 
   guardGold(g);
-  checkCollision();
+  guardEnteredRunner(g);
 }
 
 function guardGold(g) {
@@ -3027,65 +3632,60 @@ function guardGold(g) {
   if (g.hasGold === 0 && c.base === GOLD && inPickupWindow(p)) {
     c.base = EMPTY;
     terrainDirty = true;
-    /* removed from the map but NOT counted as collected - it is still in play */
-    g.hasGold = 12 + Math.floor(Math.random() * 26);   /* 12..37 crossings */
+    /* removed from the map but NOT counted as collected - it is still in play.
+       The original takes the hold length straight off the shared counter
+       (CODE 1 @0x6398, one's-complemented), giving 1..28 crossings. */
+    g.hasGold = luck() + 1;                            /* 1..28 crossings */
   }
 }
 
+/* The hold counts down one per tile crossed.  On reaching zero the guard
+   drops the gold wherever it happens to be standing, provided that tile's
+   terrain is bare - there is no requirement for anything solid underfoot,
+   and no cooldown afterwards (CODE 1 @0x6322).  If the tile is not bare the
+   count stays at one and it tries again next crossing. */
 function guardCross(g) {
   const p = g.pos, c = map[p.x][p.y];
   if (g.hasGold > 1) g.hasGold--;
   else if (g.hasGold === 1) {
-    const below = p.y >= TH - 1 ? STEEL : map[p.x][p.y + 1].base;
-    if (c.base === EMPTY && c.act === GUARD &&
-        (p.y >= TH - 1 || below === BRICK || below === STEEL || below === LADDER)) {
+    if (c.base === EMPTY) {
       c.base = GOLD;
       terrainDirty = true;
-      g.hasGold = -1;                                  /* one-crossing cooldown */
-    }
-  } else if (g.hasGold < 0) g.hasGold++;
-}
-
-function processShake() {
-  for (const g of guards) {
-    if (g.action !== A_IN_HOLE) continue;
-    g.anim = "shake";
-    if (++g.shakeTick >= SHAKE_TICKS) {
-      g.action = A_CLIMB_OUT;
-      g.holePos = { x: g.pos.x, y: g.pos.y };
-      g.anim = "climb";
-      g.dist = 0;
+      g.hasGold = 0;
     }
   }
 }
 
-const bornBag = [];
-function bornX() {
-  if (!bornBag.length) {
-    for (let i = 0; i < TW; i++) bornBag.push(i);
-    for (let i = bornBag.length - 1; i > 0; i--) {
-      const j = (Math.random() * (i + 1)) | 0;
-      const t = bornBag[i]; bornBag[i] = bornBag[j]; bornBag[j] = t;
-    }
-  }
-  return bornBag.pop();
-}
+/* The original has no random number generator.  Everything that looks random
+   - which column a buried guard comes back in, how long a guard carries gold
+   - is read off one byte that advances by one every single tick and wraps at
+   28 (CODE 1 @0x5604).  Reproducing that exactly matters, because the
+   respawn search consumes it as it scans, so the counter and the board
+   geometry together decide where guards reappear. */
+function luck() { return luckCounter; }
+function spendLuck() { luckCounter = (luckCounter + 1) % TW; }
 
+/* Start at row 1 - never row 0 - and take the counter as a column.  Accept
+   the first cell whose terrain is bare; ladders, ropes, gold, false bricks
+   and open holes are all refused.  Every refusal spends the counter, and when
+   it wraps the search drops to the next row down (CODE 1 @0x5730). */
 function guardReborn(g) {
   leaveTile(g.pos.x, g.pos.y);
-  let bx = 0, by = 1, found = false;
-  for (by = 1; by < TH && !found; by++) {
-    for (let k = 0; k < TW; k++) {
-      const cx = bornX(), c = map[cx][by];
-      if (c.act === EMPTY && c.base !== GOLD && c.base !== BRICK) { bx = cx; found = true; break; }
-    }
+  let by = 1, bx = luck();
+  for (let guard = 0; guard < TW * TH; guard++) {
+    if (by >= TH) { by = 1; break; }
+    if (map[bx][by].base === EMPTY) break;
+    spendLuck();
+    bx = luck();
+    if (bx === 0) by++;
   }
-  by = found ? by - 1 : 1;
+  if (by >= TH) { by = 1; bx = luck(); }
   g.pos = { x: bx, y: by, xOffset: 0, yOffset: 0 };
   g.action = A_REBORN;
   g.anim = "born";
   g.bornTick = 0;
   g.hasGold = 0;
+  g.shakeTick = 0;
   g.dist = 0;
   map[bx][by].act = GUARD;
   sfx("born");
@@ -3095,11 +3695,11 @@ function processBorn() {
   for (const g of guards) {
     if (g.action !== A_REBORN) continue;
     g.anim = "born";
+    /* No death check here: materialising on top of the runner is survivable
+       in the original, which only kills on a guard's own completed move. */
     if (++g.bornTick >= BORN_TICKS) {
       g.action = A_FALL;
       g.anim = "fall";
-      if (map[g.pos.x][g.pos.y].act === RUNNER ||
-          (runner.pos.x === g.pos.x && runner.pos.y === g.pos.y)) killRunner();
     }
   }
 }
@@ -3117,16 +3717,18 @@ function tileSprite(x, y) {
   switch (c.base) {
     case BRICK: {
       if (digging && digging.x === x && digging.y === y) {
-        const mi = Math.floor(digging.tick / 3);
-        return mi < 3 ? SP["brickMask" + mi] : null;
+        /* intact for the first half of the dig, then three stages of erosion -
+           the original leaves the brick whole until frame 12 of 24 */
+        const k = digging.tick - DIG_TICKS / 2;
+        if (k < 0) return SP.brick;
+        return k < 4 ? SP.brickMask0 : k < 8 ? SP.brickMask1
+             : k < 12 ? SP.brickMask2 : null;
       }
       for (const h of holes) {
         if (h.x !== x || h.y !== y) continue;
-        const k = h.t - (HOLE_TICKS - HOLE_WARN);
-        if (k < 0) return null;
-        if (k < 8) return SP.brickMask2;
-        if (k < 16) return SP.brickMask1;
-        return SP.brickMask0;
+        const left = HOLE_TICKS - h.t;
+        if (left > HOLE_WARN) return null;
+        return left > HOLE_WARN / 2 ? SP.brickMask2 : SP.brickMask1;
       }
       return SP.brick;
     }
@@ -3135,7 +3737,6 @@ function tileSprite(x, y) {
     case ROPE:    return SP.rope;
     case GOLD:    return SP.gold;
     case TRAP:    return c.trapSeen ? SP.trapOpen : SP.brick;
-    case HLADDER: return null;      /* not revealed yet */
     default:      return null;
   }
 }
@@ -3373,7 +3974,9 @@ function blaster(o, ctxOverride, destOverride) {
   const dest = destOverride || master;
   const t = ctxOverride ? 0 : a.currentTime;
 
-  const dur       = o.dur       !== undefined ? o.dur       : 0.52;
+  /* Default the shot to exactly as long as the dig takes, so retuning the
+     tick rate cannot leave the sound finishing before the brick does. */
+  const dur       = o.dur       !== undefined ? o.dur       : DIG_TICKS * TICK_MS / 1000;
   const f0        = o.f0        !== undefined ? o.f0        : 1150;  /* the "zee" */
   const f1        = o.f1        !== undefined ? o.f1        : 190;
   const warbleHz  = o.warbleHz  !== undefined ? o.warbleHz  : 8;     /* the "yoo"s */
@@ -3542,6 +4145,7 @@ function onKeyDown(e) {
     return;
   }
   if (code === "KeyT") { e.preventDefault(); latched = !latched; if (!latched) latchedDir = null; return; }
+  if (code === "KeyN") { e.preventDefault(); switchSet(setIndex + 1); return; }
   if (code === "BracketLeft")  { e.preventDefault(); startLevel(Math.max(0, level - 1)); return; }
   if (code === "BracketRight") { e.preventDefault(); startLevel(Math.min(LEVELS.length - 1, level + 1)); return; }
   if (/^Digit[0-9]$/.test(code)) {
@@ -3683,6 +4287,16 @@ function pollPad() {
    ======================================================================== */
 function updateHud() {
   el("hudLevel").textContent = String(level + 1);
+  el("hudCount").textContent = String(LEVELS.length);
+  el("hudSet").textContent = LEVEL_SETS[setIndex].short;
+}
+
+/* N steps to the next set of levels and starts it at level 1. */
+function switchSet(n) {
+  setIndex = (n + LEVEL_SETS.length) % LEVEL_SETS.length;
+  LEVELS = LEVEL_SETS[setIndex].levels;
+  startLevel(0);
+  showHint(LEVEL_SETS[setIndex].name + " - " + LEVELS.length + " levels");
 }
 
 /* Every level entry starts frozen: page load, advancing a level, R, [ ], a
@@ -3715,13 +4329,14 @@ function doWin() {
 function tick() {
   if (state === "ready") return;      /* frozen - study the board in safety */
   if (state === "run") {
-    if (goldComplete && runner.pos.y === 0 && Math.abs(runner.pos.yOffset) <= H4) {
+    /* The original wants you dead centre in the top row, not merely near it */
+    if (goldComplete && runner.pos.y === 0 && runner.pos.yOffset === 0) {
       levelPassed();
       return;
     }
+    spendLuck();
     if (digging) processDig(); else moveRunner();
     if (state === "run") moveGuards();
-    processShake();
     processHoles();
     processBorn();
   } else if (state === "dead") {
@@ -3791,19 +4406,26 @@ function spriteSheet() {
    Boot
    ======================================================================== */
 function validateLevels() {
-  if (LEVELS.length !== 86) throw Error("expected 86 levels, got " + LEVELS.length);
-  LEVELS.forEach(function (s, i) {
-    if (s.length !== TW * TH) throw Error("level " + (i + 1) + " is " + s.length + " chars");
-    let p = 0, g = 0, gold = 0;
-    for (const ch of s) {
-      if (!(ch in CHAR2TILE)) throw Error("level " + (i + 1) + ': bad char "' + ch + '"');
-      if (ch === "P") p++; else if (ch === "G") g++; else if (ch === "$") gold++;
-    }
-    if (p !== 1) throw Error("level " + (i + 1) + " has " + p + " players");
-    if (g > 5) throw Error("level " + (i + 1) + " has " + g + " guards");
-    if (gold < 1) throw Error("level " + (i + 1) + " has no gold");
+  if (JIM_LEVELS.length !== 86) throw Error("expected 86 Jim levels, got " + JIM_LEVELS.length);
+  if (LINHART_LEVELS.length !== 30) throw Error("expected 30 Linhart levels, got " + LINHART_LEVELS.length);
+  const counts = [];
+  LEVEL_SETS.forEach(function (set) {
+    set.levels.forEach(function (s, i) {
+      const where = set.short + " level " + (i + 1);
+      if (s.length !== TW * TH) throw Error(where + " is " + s.length + " chars");
+      let p = 0, g = 0, gold = 0;
+      for (const ch of s) {
+        if (!(ch in CHAR2TILE)) throw Error(where + ': bad char "' + ch + '"');
+        if (ch === "P") p++; else if (ch === "G") g++; else if (ch === "$") gold++;
+      }
+      if (p !== 1) throw Error(where + " has " + p + " players");
+      if (g > 5) throw Error(where + " has " + g + " guards");
+      if (gold < 1) throw Error(where + " has no gold");
+    });
+    counts.push(set.levels.length + " " + set.short);
   });
-  console.log("levels ok: 86 levels, 28x16, exactly one player each, <=5 guards, gold in every level");
+  console.log("levels ok: " + counts.join(" + ") +
+              ", 28x16, exactly one player each, <=5 guards, gold in every level");
 }
 
 function init() {

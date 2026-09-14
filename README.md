@@ -44,7 +44,7 @@ Simon Hung's [LodeRunner_TotalRecall](https://github.com/SimonHung/LodeRunner_To
 * [Lode Runner](https://en.wikipedia.org/wiki/Lode_Runner) (150 levels)
 * [Professional Lode Runner](http://www.gb64.com/game.php?id=5906&d=42) (150 levels)
 * [Revenge of Lode Runner](http://www.vizzed.com/play/revenge-of-lode-runner-appleii-online-apple-ii-6223-game) (17 levels)
-* [Lode Runner Fan Book](https://web.archive.org/web/20230824044358/http://www.spoonbillsoftware.com.au/loderunner.htm) (66 levels)
+* [Lode Runner Fan Book](https://www.omninet.net.au/~irhumph/loderunner.htm) (66 levels)
 * [Championship Lode Runner](https://en.wikipedia.org/wiki/Championship_Lode_Runner) (51 levels)
 
 ## Who owns Lode Runner? Is this site legal?

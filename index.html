@@ -8,7 +8,9 @@
 
       ?levels=URL   the level set, as JSON     (default levels.json, the 86
                                                 levels I designed when I was 10)
-      ?readme=URL   the writeup, as Markdown   (default README.md)
+      ?readme=URL   the writeup, as Markdown   (default README.md, but only
+                                                alongside the default levels -
+                                                ?levels= alone shows no prose)
 
   Both accept absolute or relative URLs.
 
@@ -1029,7 +1031,12 @@ function buildAtlas() {
    ======================================================================== */
 const QS = new URLSearchParams(location.search);
 const LEVELS_URL = QS.get("levels") || "levels.json";
-const README_URL = QS.get("readme") || "README.md";
+/* README.md is the writeup for the default levels, so it is the default only
+   while they are.  Point ?levels= somewhere else and say nothing about a
+   writeup, and the space below the board stays blank rather than filling with
+   prose about a level set that is not on screen. */
+const README_URL = QS.get("readme") ||
+                   (QS.has("levels") ? null : "README.md");
 
 /* Filled in by init() before the game starts.  `LEVELS` stays the one name the
    rest of the game reads, exactly as it was when the levels were inline. */
@@ -2737,6 +2744,7 @@ function resolveRelative(root, base) {
 /* Sanitized because ?readme= takes any URL, so without it a crafted link to
    this page could run someone else's script on this origin. */
 async function showWriteup(url) {
+  if (url === null) return;   /* none asked for: #about stays as it loaded, empty */
   const text = await fetchText(url);
   await whenRenderer();
   const about = el("about");
